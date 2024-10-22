@@ -126,6 +126,10 @@ fn add_edge(matrix: &mut Array2<f64>, u: usize, v: usize, weight: f64){
 
 
 
+/**
+    Given the adjacency matrix, compute the neighbors of vertex `v` at distance at most `d`.
+    It is the closed neighborhood.
+ */
 fn compute_neighbors(matrix: &Array2<f64>, v: usize, d: usize) -> Vec<usize>{
     let mut neighbors = vec![v];
     let mut last = vec![v];
@@ -383,11 +387,11 @@ fn clusters_size_stats(clusters: &Vec<Vec<usize>>) {
 
 
 
-/// Solves a biclustering problem.
+/// Solves a clustering problem.
 ///
 /// # Arguments
 ///
-/// - `matrix`: A 2D array representing the input data.
+/// - `matrix`: A 2D array representing a graph with weights between 0 and 1.
 /// - `verbose`: A boolean flag to control verbosity of output.
 /// - `dist`: An unsigned integer specifying the maximal inner distance of clusters.
 /// - `nb_vertices`: An unsigned integer specifying the number of random vertices considered at each step.
@@ -401,8 +405,7 @@ fn clusters_size_stats(clusters: &Vec<Vec<usize>>) {
 ///
 /// ```
 
-#[no_mangle]
-pub extern "C" fn solve(mut matrix: Array2<f64>, verbose: bool, dist: usize, nb_vertices: usize, split_threshold: f64) -> Vec<Vec<usize>> {
+pub fn cluster_graph(mut matrix: Array2<f64>, verbose: bool, dist: usize, nb_vertices: usize, split_threshold: f64) -> Vec<Vec<usize>> {
 
     let n = matrix.shape()[0];
     // println!("n = {n} {}", original_vertices.len());

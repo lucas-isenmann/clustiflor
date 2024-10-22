@@ -1,4 +1,8 @@
 # Clustiflor
 
+Clustering algorithm.
+
+
+
 ## Usage
 
