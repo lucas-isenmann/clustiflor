@@ -1,8 +1,9 @@
 # Clustiflor
 
-Clustering algorithm.
+Clustering and biclustering algorithm with overlaps.
 
 
 
 ## Usage
 
+## Cluster

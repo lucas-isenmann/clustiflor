@@ -1,5 +1,5 @@
 use core::f64;
-use std::{collections::{HashMap, HashSet}, thread::AccessError};
+use std::collections::HashMap;
 
 use ndarray::Array2;
 
@@ -49,7 +49,6 @@ fn centered_transition_matrix(  tm: &Array2<f64>, neighbors: &Vec<usize>) -> Arr
 
     ctm
 }
-
 
 fn compute_order(wadj: &Vec<HashMap<usize, f64>>, m: usize, vertex: usize, tm_common: &Array2<f64>, markov_power: usize)
  -> Vec<(usize,f64)> {
@@ -214,7 +213,7 @@ fn best(m: usize, order: Vec<(usize, f64)>, wadj: &Vec<HashMap<usize, f64>>, cos
         }
 
         let cost = c*f64::powf(s, -cost_coef);
-        if cost < best_weight {
+        if best_weight.is_nan() || cost < best_weight {
             best_weight = cost;
             best_cluster = b_cluster.clone();
         }
@@ -262,7 +261,7 @@ fn compute_unclustered_a(wadj: &Vec<HashMap<usize, f64>>, n: usize, m: usize, a_
 
 
 
-pub fn bicluster( wadj: &mut Vec<HashMap<usize, f64>>, n:usize, m: usize, cost_coef: f64, split_coef: f64, markov_power: usize) {
+pub fn bicluster( wadj: &mut Vec<HashMap<usize, f64>>, n:usize, m: usize, cost_coef: f64, split_coef: f64, markov_power: usize) -> Vec<Vec<usize>> {
     let mut nb_operations = 0.;
     let mut nb_deletions = 0.;
     let mut nb_splits = 0.;
@@ -275,8 +274,11 @@ pub fn bicluster( wadj: &mut Vec<HashMap<usize, f64>>, n:usize, m: usize, cost_c
 
     // While there exists B vertices to cluster
     loop {
+        
         // Compute the transition matrix between B vertices
         let tm = transition_matrix_b(wadj, n, m);
+
+        print_matrix(&tm);
 
         let mut best_cluster = Vec::new();
         let mut best_weight = f64::NAN;
@@ -288,6 +290,7 @@ pub fn bicluster( wadj: &mut Vec<HashMap<usize, f64>>, n:usize, m: usize, cost_c
                 continue;
             }
 
+            println!("Step 1: compute order of {b}");
             let mut d = 0.;
             for (_,w) in wadj[b].iter() {
                 d += w;
@@ -298,8 +301,9 @@ pub fn bicluster( wadj: &mut Vec<HashMap<usize, f64>>, n:usize, m: usize, cost_c
                 } else {
                     compute_order(&wadj, m, b, &tm, markov_power)
                 };
+            println!("Step 2: compute best cost");
             let (w, b_cluster) = best(m, order, &wadj, cost_coef);
-            if w < best_weight {
+            if best_weight.is_nan() || w < best_weight {
                 best_weight = w;
                 best_cluster = b_cluster.clone();
             }
@@ -315,7 +319,7 @@ pub fn bicluster( wadj: &mut Vec<HashMap<usize, f64>>, n:usize, m: usize, cost_c
         }
         b_clusters.push(best_cluster.clone());
 
-
+        println!("Step 3: apply {best_cluster:?}");
         let a_cluster = apply_operations(n, m, best_cluster, wadj); 
         // todo!("modify nb_...");
 
@@ -326,6 +330,7 @@ pub fn bicluster( wadj: &mut Vec<HashMap<usize, f64>>, n:usize, m: usize, cost_c
     let unclustered_a = compute_unclustered_a(wadj, n, m, &a_clusters);
 
     if unclustered_a.len() > 0 {
+        println!("Unclustered A: {unclustered_a:?}");
         a_clusters.push(unclustered_a);
         b_clusters.push(vec![]);
     }
@@ -336,14 +341,16 @@ pub fn bicluster( wadj: &mut Vec<HashMap<usize, f64>>, n:usize, m: usize, cost_c
     println!("- split coef: {split_coef}");
     println!("- markov power: {markov_power}");
     println!("
-    # Results
-    - eta: 
-    - nb biclusters: 
-    - nb operations: {nb_operations}
-    ");
+# Results
+- eta: 
+- nb biclusters: 
+- nb operations: {nb_operations}
+");
 
     // Check integrity
     check_integrity(&a_clusters, &b_clusters, n, m);
+
+    compute_clusters(&a_clusters, &b_clusters, n, m)
 
 }      
 
@@ -378,7 +385,7 @@ fn apply_operations(n: usize, m: usize, b_cluster: Vec<usize>, wadj: &mut Vec<Ha
     let mut nb_deletions = 0.;
     let mut nb_splits = 0.;
     let mut nb_additions = 0.;
-    let blen: f64 = b_cluster.len() as f64;
+    let blen = b_cluster.len() as f64;
 
     for a in 0..n {
         let mut indegree = 0.;
@@ -464,6 +471,7 @@ fn compute_clusters(a_clusters: &Vec<Vec<usize>>, b_clusters: &Vec<Vec<usize>>, 
         for &a in a_clusters[i].iter() {
             cluster.push(a);
         }
+        clusters.push(cluster);
     }
     clusters
 }
@@ -513,6 +521,8 @@ fn check_integrity(a_clusters: &Vec<Vec<usize>>, b_clusters: &Vec<Vec<usize>>, n
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
+use crate::common::print_matrix;
+
 pub fn load_wadj_from_csv(file_path: &str, del: &str) -> (Vec<HashMap<usize, f64>>, usize, usize, HashMap<String, usize>, HashMap<String, usize>) {
 
     let file = File::open(file_path).expect("Failed to open file");
@@ -559,17 +569,54 @@ pub fn load_wadj_from_csv(file_path: &str, del: &str) -> (Vec<HashMap<usize, f64
                 weight = values[2].parse().unwrap();
             }
             edges.push((*n1, *n2, weight))
-
         }
     }
 
     let mut wadj = vec![HashMap::new(); n+m];
-    for (a,b,w) in edges {
+    for &(a,b,w) in edges.iter() {
         wadj[a+m].insert(b, w);
         wadj[b].insert(a,w);
     }
 
-    println!("n={n} m={m}");
+
 
     (wadj, n, m, node_map_a, node_map_b)
+}
+
+
+pub fn print_biclusters_stats(biclusters: &Vec<Vec<usize>>, n: usize, m: usize) {
+    println!("Number of biclusters: {}", biclusters.len())
+}
+
+
+
+pub fn print_wadj_stats(wadj: &Vec<HashMap<usize, f64>>, n: usize, m: usize) {
+    println!("# Data statistics:");
+    println!("n={n}");
+    println!("m={m}");
+
+    let mut minw = f64::NAN;
+    let mut maxw = f64::NAN;
+    let mut ne = 0;
+    let mut density = 0.;
+    for b in 0..m {
+        ne += wadj[b].len();
+        for (_, &w) in wadj[b].iter() {
+            if maxw.is_nan() || w > maxw {
+                maxw = w;
+            }
+            if minw.is_nan() || w < minw {
+                minw = w;
+            }
+            density += w;
+        }
+    }
+    density /= (n*m) as f64;
+    println!("Number of edges: {ne}");
+    println!("Edge density: {}", (ne as f64)/((n*m) as f64));
+
+    println!("Min weight: {minw}");
+    println!("Max weight: {maxw}");
+    println!("Density: {density:.2}")
+
 }

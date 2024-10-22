@@ -1,12 +1,12 @@
 mod lib;
 mod bicluster;
+mod common;
 use std::{collections::HashMap, fs::File, io::BufWriter, io::Write};
 
-use bicluster::load_wadj_from_csv;
+use bicluster::{bicluster, load_wadj_from_csv, print_biclusters_stats, print_wadj_stats};
 use lib::{cluster_graph, load_adj_list_file, load_edges_file};
 
 use std::env;
-use std::path::Path;
 
 
 fn main() {
@@ -25,12 +25,11 @@ fn main() {
     println!("Delimiter: {}", delimiter);
 
     match load_wadj_from_csv(file_path, delimiter) {
-        (wadj, n, m, metaA, metaB) => {
-            println!("Graph loaded successfully!");
-            println!("Number of rows: {}", n);
-            println!("Number of cols: {}", m);
-            println!("{metaA:?}");
-            println!("{metaB:?}");
+        (mut wadj, n, m, metaA, metaB) => {
+            print_wadj_stats(&wadj, n, m);
+            let biclusters = bicluster(&mut wadj, n, m, 1., 1., 3);
+
+            print_biclusters_stats(&biclusters, n, m);
         }
     }
 
