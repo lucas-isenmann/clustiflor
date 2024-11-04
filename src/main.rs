@@ -8,28 +8,64 @@ use lib::{cluster_graph, load_adj_list_file, load_edges_file};
 
 use std::env;
 
+struct Args {
+    cost: f64,
+    split: f64,
+    power: usize,
+    verbose: usize
+}
+
+impl Default for Args {
+    fn default() -> Self {
+        Args {
+            cost: 1.0,
+            split: 1.0,
+            power: 3,
+            verbose: 0
+        }
+    }
+}
+
 
 fn main() {
 
-    let args: Vec<String> = env::args().collect();
-    
-    if args.len() < 3 {
-        eprintln!("Usage: {} <file_path> <delimiter>", args[0]);
+    let program_args: Vec<String> = env::args().collect();
+
+    let mut args = Args::default();
+
+
+    for arg in program_args.iter() {
+        if arg.starts_with("--cost") {
+            args.cost = arg.split_at(7).1.parse::<f64>().unwrap_or(args.cost);
+        } else if arg.starts_with("--split") {
+            args.split = arg.split_at(8).1.parse::<f64>().unwrap_or(args.split);
+            println!("split {}", args.split);
+        } else if arg.starts_with("--power") {
+            args.power = arg.split_at(8).1.parse::<usize>().unwrap_or(args.power);
+        } else if arg.starts_with("--verbose") {
+            args.verbose = arg.split_at(10).1.parse::<usize>().unwrap_or(args.verbose);
+        }
+    }
+
+
+    if program_args.len() < 3 {
+        eprintln!("Usage: {} <file_path> <delimiter> --split=<>", program_args[0]);
         std::process::exit(1);
     }
 
-    let file_path = &args[1];
-    let delimiter = &args[2];
+    let file_path = &program_args[1];
+    let delimiter = &program_args[2];
 
     println!("File path: {}", file_path);
     println!("Delimiter: {}", delimiter);
 
     match load_wadj_from_csv(file_path, delimiter) {
-        (mut wadj, n, m, metaA, metaB) => {
+        (mut wadj, n, m, labels_a, labels_b) => {
             print_wadj_stats(&wadj, n, m);
-            let biclusters = bicluster(&mut wadj, n, m, 1., 1., 3);
+            let biclusters = bicluster(&mut wadj, n, m, args.cost, args.split, args.power, args.verbose);
 
-            print_biclusters_stats(&biclusters, n, m);
+            let results_path = file_path.to_string() + ".biclusters";
+            print_biclusters_stats(&biclusters, n, &labels_a, &labels_b, Some(&results_path));
         }
     }
 

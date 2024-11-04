@@ -1,3 +1,5 @@
+use std::io::{stdout, Write};
+
 use ndarray::Array2;
 
 
@@ -22,3 +24,18 @@ pub fn print_matrix(matrix: &Array2<f64>) {
 }
 
 
+
+pub fn progress_bar(current: usize, total: usize) {
+    let percentage = (current as f64) / (total as f64);
+    let bar_length = 100;
+    
+    let bar = format!(
+        "\r[{:>bar_length$}] {}% ({}/{})",
+        ">".repeat((percentage * (bar_length as f64)).floor() as usize),
+        percentage.round(),
+        current,
+        total
+    );
+    
+    stdout().write_all(bar.as_bytes()).unwrap();
+}
