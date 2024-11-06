@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::hash::Hash;
 use std::io::{stdout, Write};
 
 use ndarray::Array2;
@@ -38,4 +40,44 @@ pub fn progress_bar(current: usize, total: usize) {
     );
     
     stdout().write_all(bar.as_bytes()).unwrap();
+}
+
+
+
+use std::fs::{self, File};
+use std::io::{self, BufRead, BufReader};
+
+
+pub fn load_r_biclusters(file_path: &str, node_map_a: &HashMap<String, usize>,  node_map_b: &HashMap<String, usize>) -> Vec<Vec<usize>> {
+
+    let file = File::open(file_path).expect("Failed to open file");
+    let reader = BufReader::new(file);
+    let mut biclusters = vec![];
+    let mut bicluster = vec![];
+
+    for (i, line) in reader.lines().enumerate() {
+        
+        if let Ok(line) = line {
+            if i % 3 == 0 {
+                continue
+            }
+            else if i % 3 == 1 {
+                bicluster.clear();
+                let values: Vec<&str> = line.split(" ").collect();
+                for  x in values {
+                    let nx = node_map_a.get(x).unwrap();
+                    bicluster.push(*nx);
+                }
+            } else {
+                let values: Vec<&str> = line.split(" ").collect();
+                for  x in values {
+                    let nx = node_map_b.get(x).unwrap();
+                    bicluster.push(node_map_a.len()+ *nx);
+                }
+                biclusters.push(bicluster.clone());
+            }
+
+        }
+    }
+    biclusters
 }

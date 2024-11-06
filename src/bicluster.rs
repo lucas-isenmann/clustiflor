@@ -567,7 +567,7 @@ use std::io::{self, BufRead, BufReader, Write};
 
 use crate::common::{print_matrix, progress_bar};
 
-pub fn load_wadj_from_csv(file_path: &str, del: &str) -> (Vec<HashMap<usize, f64>>, usize, usize, Vec<String>, Vec<String>) {
+pub fn load_wadj_from_csv(file_path: &str, del: &str) -> (Vec<HashMap<usize, f64>>, usize, usize, Vec<String>, Vec<String>, HashMap<String, usize>, HashMap<String, usize>) {
 
     let file = File::open(file_path).expect("Failed to open file");
     let reader = BufReader::new(file);
@@ -628,7 +628,7 @@ pub fn load_wadj_from_csv(file_path: &str, del: &str) -> (Vec<HashMap<usize, f64
 
 
 
-    (wadj, n, m, labels_a, labels_b)
+    (wadj, n, m, labels_a, labels_b, node_map_a, node_map_b)
 }
 
 
@@ -708,4 +708,56 @@ pub fn print_wadj_stats(wadj: &Vec<HashMap<usize, f64>>, n: usize, m: usize){
     println!("- Avg weight: {density:.3}");
 
 
+}
+
+
+fn biclusters_contains_subset(biclusters: &Vec<Vec<usize>>, subset: &Vec<usize>) -> bool{
+    for bicluster in biclusters {
+        let mut ok = true;
+        for x in subset {
+            if bicluster.contains(x) == false {
+                ok = false;
+                break;
+            }
+        }
+        if ok {
+            return true;
+        }
+    }
+    false
+}
+
+
+pub fn compute_edition_diff(biclusters: &Vec<Vec<usize>>, wadj: &Vec<HashMap<usize, f64>>, n: usize, m: usize) -> f64 {
+    let mut r = 0;
+
+    for a in 0..n {
+        for b in 0..m {
+            if wadj[b].contains_key(&a) != biclusters_contains_subset(biclusters, &vec![a,b+n]) {
+                println!("{a} {} ",b+n);
+                r += 1;
+            }
+        }
+    }
+    
+    
+    r as f64
+}
+
+
+
+pub fn compute_nb_unclustered(biclusters: &Vec<Vec<usize>>, n: usize, m: usize) -> (usize, usize) {
+    let mut ra = 0;
+    for a in 0..n {
+        if biclusters_contains_subset(biclusters, &vec![a]) == false {
+            ra += 1;
+        }
+    }    
+    let mut rb = 0;
+    for b in 0..m {
+        if biclusters_contains_subset(biclusters, &vec![b+n]) == false {
+            rb += 1;
+        }
+    }
+    (ra, rb)
 }
