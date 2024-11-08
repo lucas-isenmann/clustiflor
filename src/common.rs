@@ -1,9 +1,8 @@
 use std::collections::HashMap;
-use std::hash::Hash;
 use std::io::{stdout, Write};
 
 use ndarray::Array2;
-
+use std::time::{Duration, Instant};
 
 
 pub fn print_matrix(matrix: &Array2<f64>) {
@@ -27,25 +26,63 @@ pub fn print_matrix(matrix: &Array2<f64>) {
 
 
 
-pub fn progress_bar(current: usize, total: usize) {
+pub fn progress_bar(current: usize, total: usize, start_instant: Instant) {
+    let elapsed_time = start_instant.elapsed();
+    
     let percentage = (current as f64) / (total as f64);
     let bar_length = 100;
     
     let bar = format!(
-        "\r[{:>bar_length$}] {}% ({}/{})",
+        "\r[{:>bar_length$}] {}% ({}/{}) | Elapsed: {:>8} | ETA: {:>8}",
         ">".repeat((percentage * (bar_length as f64)).floor() as usize),
-        percentage.round(),
+        (percentage * 100.).round(),
         current,
-        total
+        total,
+        human_duration(elapsed_time),
+        estimate_eta(elapsed_time, percentage)
     );
     
     stdout().write_all(bar.as_bytes()).unwrap();
 }
 
+fn estimate_eta(elapsed: Duration, progress: f64) -> String {
+    if progress == 0. {
+        return String::new();
+    }
+    let total_duration_estimate = (elapsed.as_secs() as f64) / progress;
+    let remaining_estimate = total_duration_estimate - (elapsed.as_secs() as f64);
+    let estimated_eta = Duration::from_secs(remaining_estimate as u64);
+    human_duration(estimated_eta)
+}
 
 
-use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader};
+
+/// - Durations greater than 60 seconds are formatted as "Xm Ys" (e.g., "1m 5s")
+/// - Durations 60 seconds or less are formatted as "Xs" (e.g., "15s")
+///
+/// # Examples
+/// 
+///     use std::time::Duration; 
+///     assert_eq!(human_duration(Duration::from_secs(65)), "1m 5s"); 
+///     assert_eq!(human_duration(Duration::from_secs(15)), "15s");
+/// 
+fn human_duration(d: Duration) -> String {
+    let total_seconds = d.as_secs();
+    
+    if total_seconds > 60 {
+        let minutes = total_seconds / 60;
+        let seconds = total_seconds % 60;
+        
+        format!("{}m {}s", minutes, seconds)
+    } else {
+        format!("{}s", total_seconds)
+    }
+}
+
+
+
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 
 
 pub fn load_r_biclusters(file_path: &str, node_map_a: &HashMap<String, usize>,  node_map_b: &HashMap<String, usize>) -> Vec<Vec<usize>> {

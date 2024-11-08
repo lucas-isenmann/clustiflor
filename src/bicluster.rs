@@ -1,5 +1,6 @@
 use core::f64;
 use std::collections::HashMap;
+use std::time::Instant;
 
 use ndarray::Array2;
 
@@ -121,7 +122,7 @@ fn degree(wadj: &Vec<HashMap<usize, f64>>, a: usize, m: usize) -> f64 {
 
 ///
 /// cost_coef in [0,1]
-fn best(m: usize, order: Vec<(usize, f64)>, wadj: &Vec<HashMap<usize, f64>>, cost_coef: f64, split_threshold: f64) -> (f64, Vec<usize>)  {
+fn best(n:usize, m: usize, order: Vec<(usize, f64)>, wadj: &Vec<HashMap<usize, f64>>, cost_coef: f64, split_threshold: f64) -> (f64, Vec<usize>)  {
     let mut best_cost = f64::NAN;
     let mut best_cluster = Vec::new();
     let mut b_cluster = Vec::new();
@@ -129,8 +130,8 @@ fn best(m: usize, order: Vec<(usize, f64)>, wadj: &Vec<HashMap<usize, f64>>, cos
     let mut s = 0.;
     let mut c = 0.;
     let mut state = HashMap::new();
-    let mut indegree = vec![0.;m];
-    let mut outdegree = vec![0.;m];
+    let mut indegree = vec![0.;n];
+    let mut outdegree = vec![0.;n];
 
     for (i, proba_i) in order {
         if proba_i == 0. {
@@ -272,22 +273,40 @@ pub fn bicluster( wadj: &mut Vec<HashMap<usize, f64>>, n:usize, m: usize, cost_c
 
     let mut a_clusters = vec![];
     let mut b_clusters = vec![];
+    let mut isolated_b_vertices = vec![];
 
     let mut assigned = vec![false; m];
     let mut nb_assigned = 0;
+
+    let start_instant = Instant::now();
 
     // While there exists B vertices to cluster
     loop {
         
         if verbose >= 1 {
-            println!("{nb_assigned} B vertices are assigned");
+            println!("{nb_assigned} B / {m} vertices are assigned");
         }
         if nb_assigned == m {
             break;
         }
         
         if verbose == 0 {
-            progress_bar(nb_assigned, m);
+            progress_bar(nb_assigned, m, start_instant);
+        }
+
+        // Check if there is a B vertex of degree 0
+        let mut has_isolated_b_vertices = false;
+        for b in 0..m {
+            if assigned[b] == false && wadj[b].len() == 0 {
+                assigned[b] = true;
+                nb_assigned += 1;
+                isolated_b_vertices.push(b);
+                has_isolated_b_vertices = true;
+            }
+        }
+        if has_isolated_b_vertices {
+            continue;
+            
         }
 
         // Compute the transition matrix between B vertices
@@ -325,7 +344,7 @@ pub fn bicluster( wadj: &mut Vec<HashMap<usize, f64>>, n:usize, m: usize, cost_c
             }
             
             // Compute best cost
-            let (cost, b_cluster) = best(m, order, &wadj, cost_coef, split_threshold);
+            let (cost, b_cluster) = best(n, m, order, &wadj, cost_coef, split_threshold);
             if best_cost.is_nan() || cost < best_cost {
                 best_cost = cost;
                 best_cluster = b_cluster.clone();
@@ -361,12 +380,17 @@ pub fn bicluster( wadj: &mut Vec<HashMap<usize, f64>>, n:usize, m: usize, cost_c
         a_clusters.push(a_cluster);
     }
 
+    // Add isolated B vertices
+    if isolated_b_vertices.len() > 0 {
+        b_clusters.push(isolated_b_vertices.clone());
+        a_clusters.push(vec![]);
+    }
+
     // After having clustered every B vertices, it is possible that there remains unclustered A vertices
     let unclustered_a = compute_unclustered_a(n,  &a_clusters);
 
     if unclustered_a.len() > 0 {
-        println!("Unclustered A: {unclustered_a:?}");
-        a_clusters.push(unclustered_a);
+        a_clusters.push(unclustered_a.clone());
         b_clusters.push(vec![]);
     }
 
@@ -381,11 +405,13 @@ pub fn bicluster( wadj: &mut Vec<HashMap<usize, f64>>, n:usize, m: usize, cost_c
     println!("
 # Results
 - Error: {eta:.6}
+- Nb isolated A vertices: {}
+- Nb isolated B vertices: {}
 - Nb operations: {nb_operations}
 - Nb splits: {nb_splits}
 - Nb deletions: {nb_deletions}
 - Nb additions: {nb_additions}
-");
+", unclustered_a.len(), isolated_b_vertices.len());
 
     // Check integrity
     check_integrity(&a_clusters, &b_clusters, n, m);
@@ -562,8 +588,8 @@ fn check_integrity(a_clusters: &Vec<Vec<usize>>, b_clusters: &Vec<Vec<usize>>, n
 
 
 
-use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader, Write};
+use std::fs::File;
+use std::io::{BufRead, BufReader, Write};
 
 use crate::common::{print_matrix, progress_bar};
 
@@ -644,9 +670,12 @@ pub fn compute_overlapping2(biclusters: &Vec<Vec<usize>>, n: usize) -> f64 {
     result / (n as f64)
 }
 
-pub fn print_biclusters_stats(biclusters: &Vec<Vec<usize>>, n: usize, labels_a: &Vec<String>, labels_b: &Vec<String>, file_path: Option<&str>) {
-    println!("- Number of biclusters: {}", biclusters.len());
-    println!("- Overlapping: {:.3}", compute_overlapping2(biclusters, n));
+pub fn print_biclusters_stats(biclusters: &Vec<Vec<usize>>, 
+    cost_coef: f64, 
+    split_threshold: f64, 
+    markov_power: usize,
+     n: usize, labels_a: &Vec<String>, labels_b: &Vec<String>, file_path: Option<&str>) {
+    
     
 
     let file_name = match file_path {
@@ -655,7 +684,28 @@ pub fn print_biclusters_stats(biclusters: &Vec<Vec<usize>>, n: usize, labels_a: 
     };
 
     let mut file = File::create(&file_name).expect("Failed to open file");
+    
+    writeln!(file, "# Hyperparameters").unwrap();
+    writeln!(file, "- cost coef: {cost_coef}").unwrap();
+    writeln!(file, "- split threshold: {split_threshold}").unwrap();
+    writeln!(file, "- markov power: {markov_power}").unwrap();
+    
+    writeln!(file, "\n# Results").unwrap();
 
+    
+// - Error: {eta:.6}
+// - Nb isolated A vertices: {}
+// - Nb isolated B vertices: {}
+// - Nb operations: {nb_operations}
+// - Nb splits: {nb_splits}
+// - Nb deletions: {nb_deletions}
+// - Nb additions: {nb_additions}
+
+    writeln!(file, "- Number of biclusters: {}", biclusters.len()).unwrap();
+    writeln!(file, "- A Overlapping: {:.3}", compute_overlapping2(biclusters, n)).unwrap();
+
+    writeln!(file, "").unwrap();
+    writeln!(file, "# Clusters\n").unwrap();
 
     for bicluster in biclusters {
         for &x in bicluster {

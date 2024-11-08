@@ -1,7 +1,6 @@
 mod lib;
 mod bicluster;
 mod common;
-use std::{collections::HashMap, fs::File, io::BufWriter, io::Write};
 
 use bicluster::{bicluster, compute_edition_diff, compute_nb_unclustered, load_wadj_from_csv, print_biclusters_stats, print_wadj_stats};
 use common::load_r_biclusters;
@@ -64,20 +63,20 @@ fn main() {
         (wadj, n, m, labels_a, labels_b, node_map_a, node_map_b) => {
             print_wadj_stats(&wadj, n, m);
             let mut wadj2 = wadj.clone();
-            // let biclusters = bicluster(&mut wadj2, n, m, args.cost, args.split, args.power, args.verbose);
-            
+            let biclusters = bicluster(&mut wadj2, n, m, args.cost, args.split, args.power, args.verbose);
+            let results_path = file_path.to_string() + ".biclusters";
+            print_biclusters_stats(&biclusters, args.cost, args.split, args.power, n, &labels_a, &labels_b, Some(&results_path));
 
 
             
-            let r = load_r_biclusters( "results.txt", &node_map_a, &node_map_b);
-            for biclust in r.iter() {
-                println!("{biclust:?}");
-            }
+            // let r = load_r_biclusters( "results.txt", &node_map_a, &node_map_b);
+            // for biclust in r.iter() {
+            //     println!("{biclust:?}");
+            // }
 
-            println!("{:?} {}", compute_nb_unclustered(&r, n, m), compute_edition_diff(&r, &wadj, n, m));
+            // println!("{:?} {}", compute_nb_unclustered(&r, n, m), compute_edition_diff(&r, &wadj, n, m));
 
-            // let results_path = file_path.to_string() + ".biclusters";
-            // print_biclusters_stats(&biclusters, n, &labels_a, &labels_b, Some(&results_path));
+            
         }
     }
 
