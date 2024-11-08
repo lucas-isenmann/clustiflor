@@ -591,7 +591,9 @@ fn check_integrity(a_clusters: &Vec<Vec<usize>>, b_clusters: &Vec<Vec<usize>>, n
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 
-use crate::common::{print_matrix, progress_bar};
+use crate::common::common::{print_matrix, progress_bar};
+
+
 
 pub fn load_wadj_from_csv(file_path: &str, del: &str) -> (Vec<HashMap<usize, f64>>, usize, usize, Vec<String>, Vec<String>, HashMap<String, usize>, HashMap<String, usize>) {
 
