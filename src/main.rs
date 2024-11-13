@@ -1,11 +1,12 @@
 pub mod biclusters;
+pub mod common;
 
 use std::env;
 
-use biclusters::{biclust::Biclust, biclustering::Biclustering, r_results::load_r_biclusters};
+use biclusters::{algo::{bicluster, load_wadj_from_csv, print_wadj_stats}, biclust::Biclust, biclustering::Biclustering, generator::WeightedBiAdjacency, r_results::load_r_biclusters};
 
 struct Args {
-    cost: f64,
+    size: f64,
     split: f64,
     power: usize,
     verbose: usize
@@ -14,7 +15,7 @@ struct Args {
 impl Default for Args {
     fn default() -> Self {
         Args {
-            cost: 1.0,
+            size: 1.0,
             split: 1.0,
             power: 3,
             verbose: 0
@@ -25,65 +26,62 @@ impl Default for Args {
 
 fn main() {
 
-    match load_wadj_from_csv(file_path, delimiter) {
-            (wadj, n, m, labels_a, labels_b, node_map_a, node_map_b) => {
+    let a = WeightedBiAdjacency::rand(5,5, 0.5);
+    a.print();
+    
+    return ;
 
-            }
+    
+    let program_args: Vec<String> = env::args().collect();
 
+    let mut args = Args::default();
+
+
+    for arg in program_args.iter() {
+        if arg.starts_with("--size-sensivity") {
+            args.size = arg.split_at(7).1.parse::<f64>().unwrap_or(args.size);
+        } else if arg.starts_with("--split") {
+            args.split = arg.split_at(8).1.parse::<f64>().unwrap_or(args.split);
+            println!("split {}", args.split);
+        } else if arg.starts_with("--power") {
+            args.power = arg.split_at(8).1.parse::<usize>().unwrap_or(args.power);
+        } else if arg.starts_with("--verbose") {
+            args.verbose = arg.split_at(10).1.parse::<usize>().unwrap_or(args.verbose);
+        }
     }
 
-    let a = load_r_biclusters("r_results.txt", node_map_a, node_map_b)
-    
-    // let program_args: Vec<String> = env::args().collect();
 
-    // let mut args = Args::default();
+    if program_args.len() < 3 {
+        eprintln!("Usage: {} <file_path> <delimiter> --split=<>", program_args[0]);
+        std::process::exit(1);
+    }
 
+    let file_path = &program_args[1];
+    let delimiter = &program_args[2];
 
-    // for arg in program_args.iter() {
-    //     if arg.starts_with("--cost") {
-    //         args.cost = arg.split_at(7).1.parse::<f64>().unwrap_or(args.cost);
-    //     } else if arg.starts_with("--split") {
-    //         args.split = arg.split_at(8).1.parse::<f64>().unwrap_or(args.split);
-    //         println!("split {}", args.split);
-    //     } else if arg.starts_with("--power") {
-    //         args.power = arg.split_at(8).1.parse::<usize>().unwrap_or(args.power);
-    //     } else if arg.starts_with("--verbose") {
-    //         args.verbose = arg.split_at(10).1.parse::<usize>().unwrap_or(args.verbose);
-    //     }
-    // }
+    println!("File path: {}", file_path);
+    println!("Delimiter: {}", delimiter);
 
-
-    // if program_args.len() < 3 {
-    //     eprintln!("Usage: {} <file_path> <delimiter> --split=<>", program_args[0]);
-    //     std::process::exit(1);
-    // }
-
-    // let file_path = &program_args[1];
-    // let delimiter = &program_args[2];
-
-    // println!("File path: {}", file_path);
-    // println!("Delimiter: {}", delimiter);
-
-    // match load_wadj_from_csv(file_path, delimiter) {
-    //     (wadj, n, m, labels_a, labels_b, node_map_a, node_map_b) => {
-    //         print_wadj_stats(&wadj, n, m);
-    //         let mut wadj2 = wadj.clone();
-    //         let biclusters = bicluster(&mut wadj2, n, m, args.cost, args.split, args.power, args.verbose);
-    //         let results_path = file_path.to_string() + ".biclusters";
-    //         print_biclusters_stats(&biclusters, args.cost, args.split, args.power, n, &labels_a, &labels_b, Some(&results_path));
+    match load_wadj_from_csv(file_path, delimiter) {
+        (wadj, n, m, labels_a, labels_b, node_map_a, node_map_b) => {
+            print_wadj_stats(&wadj, n, m);
+            let mut wadj2 = wadj.clone();
+            let biclusters = bicluster(&mut wadj2, n, m, args.size, args.split, args.power, args.verbose);
+            let results_path = file_path.to_string() + ".biclusters";
+            biclusters.print_stats(args.size, args.split, args.power, &labels_a, &labels_b, Some(&results_path));
 
 
             
-    //         // let r = load_r_biclusters( "results.txt", &node_map_a, &node_map_b);
-    //         // for biclust in r.iter() {
-    //         //     println!("{biclust:?}");
-    //         // }
+            // let r = load_r_biclusters( "results.txt", &node_map_a, &node_map_b);
+            // for biclust in r.iter() {
+            //     println!("{biclust:?}");
+            // }
 
-    //         // println!("{:?} {}", compute_nb_unclustered(&r, n, m), compute_edition_diff(&r, &wadj, n, m));
+            // println!("{:?} {}", compute_nb_unclustered(&r, n, m), compute_edition_diff(&r, &wadj, n, m));
 
             
-    //     }
-    // }
+        }
+    }
 
 
 

@@ -8,7 +8,7 @@ use super::biclustering::Biclustering;
 
 
 
-
+/// Dont forget to delete the first line of results.txt obtained by Bimax
 pub fn load_r_biclusters(
     file_path: &str, 
     node_map_a: &HashMap<String, usize>,  

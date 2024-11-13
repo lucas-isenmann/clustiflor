@@ -1,18 +1,6 @@
-# library(biclust)
 
-# edges <- cbind(c(1,2,2,3,3,4), c(2,3,3,4,4,4))
-# graph_matrix <- matrix(0, nrow=4, ncol=4)
-# for(i in 1:nrow(edges)) {
-#   graph_matrix[edges[i,1], edges[i,2]] <- 1
-# }
-# graph_matrix
-
-# res <- biclust(x=graph_matrix, method=BCBimax(), minr=2, minc=2, number=10)
-
-# drawHeatmap(x=graph_matrix, bicResult=res, number=1)
-
-
-create_graph_matrix <- function(filename) {
+# Create the biadjcency matrix from a file containing the list of the edges of a bipartite graph
+create_graph_biadj_matrix <- function(filename) {
     lines <- readLines(filename)
 
     n = 0
@@ -52,12 +40,12 @@ create_graph_matrix <- function(filename) {
   return(graph_matrix)
 }
 
-graph_matrix = create_graph_matrix("peter.adj")
+graph_matrix = create_graph_biadj_matrix("test.adj")
 
 library(biclust)
 res = biclust(x=graph_matrix, method=BCBimax())
 
-writeBiclusterResults("results.txt", res,"lol", rownames(graph_matrix), colnames(graph_matrix))
+writeBiclusterResults("results.txt", res,"Bimax biclusters", rownames(graph_matrix), colnames(graph_matrix))
 
 
 

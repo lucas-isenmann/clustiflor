@@ -1,5 +1,5 @@
-use std::collections::HashSet;
-
+use std::{collections::HashSet, fs::File};
+use std::io::Write;
 use super::biclustering::Biclustering;
 
 pub struct Biclust {
@@ -19,6 +19,23 @@ impl Biclust {
             cols_memberships: vec![vec![]; m],
             biclusters: vec![],
         }
+    }
+
+
+    /// a_clusters values should be in [0,n-1]
+    /// b_clusters values should be in [0,m-1]
+    /// 
+    pub fn from_separate_biclusters(n: usize, m: usize, a_clusters: &Vec<Vec<usize>>, b_clusters: &Vec<Vec<usize>>)  -> Self {
+        let mut b = Biclust::new(n,m);
+
+        for i in 0..a_clusters.len() {
+            let mut c = a_clusters[i].clone();
+            for x in b_clusters[i].iter() {
+                c.push(n+*x);
+            }
+            b.add_bicluster(c);
+        }
+        b
     }
 
     pub fn print(&self) {
@@ -89,6 +106,74 @@ impl Biclust {
 
         (scols*srows).sqrt()
     }
+
+
+    pub fn get_rows_overlapping(&self) -> f64 {
+        let mut result = 0.;
+        for cluster in self.biclusters.iter() {
+            for &x in cluster {
+                if x < self.n {
+                    result += 1.;
+                }
+            }
+        }
+        result / (self.n as f64)
+    }
+    
+
+    pub fn print_stats(&self,
+        size_sensivity: f64, 
+        split_threshold: f64, 
+        markov_power: usize,
+        labels_a: &Vec<String>, 
+        labels_b: &Vec<String>, 
+        file_path: Option<&str>) {
+        
+        
+
+        let file_name = match file_path {
+            Some(path) => path.to_string(),
+            None => "biclusters.txt".to_string(),
+        };
+
+        let mut file = File::create(&file_name).expect("Failed to open file");
+        
+        writeln!(file, "# Hyperparameters").unwrap();
+        writeln!(file, "- size sensivity: {size_sensivity}").unwrap();
+        writeln!(file, "- split threshold: {split_threshold}").unwrap();
+        writeln!(file, "- markov power: {markov_power}").unwrap();
+        
+        writeln!(file, "\n# Results").unwrap();
+
+        
+    // - Error: {eta:.6}
+    // - Nb isolated A vertices: {}
+    // - Nb isolated B vertices: {}
+    // - Nb operations: {nb_operations}
+    // - Nb splits: {nb_splits}
+    // - Nb deletions: {nb_deletions}
+    // - Nb additions: {nb_additions}
+
+        writeln!(file, "- Number of biclusters: {}", self.biclusters.len()).unwrap();
+        writeln!(file, "- A Overlapping: {:.3}", self.get_rows_overlapping()).unwrap();
+
+        writeln!(file, "").unwrap();
+        writeln!(file, "# Clusters\n").unwrap();
+
+        for bicluster in self.biclusters.iter() {
+            for &x in bicluster {
+                if x < self.n {
+                    write!(file, "{} ", labels_a[x]).unwrap();
+                } else {
+                    write!(file, "{} ", labels_b[x-self.n]).unwrap();
+                }
+            }
+            writeln!(file, "").unwrap();
+        }
+        println!("Biclusters printed to {}", file_name);
+
+    }
+
 }
 
 fn size_intersection(a: &Vec<usize>, b: &Vec<usize>) -> usize {

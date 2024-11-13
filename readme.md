@@ -25,6 +25,11 @@ Only labels on the left can be split.
 
 Hyperparameters:
 
-    --cost=1 should be in [0,1]
-    --split=1 should be positive
-    --power=3 should be an integer
+    --cost=1 should be in [0,1] (default value: 1)
+    --split=1 should be >= 1 (default value: 1)
+    --power=3 should be an integer (default value: 3)
+
+
+Launch
+
+    cargo run --release data.adj " "

@@ -5,6 +5,14 @@ use std::time::Instant;
 use ndarray::Array2;
 
 
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+
+use crate::biclusters::biclust::Biclust;
+use crate::common::{print_matrix, progress_bar};
+
+
+
 /// Return the transition matrix between B vertices
 /// 
 fn transition_matrix_b(wadj: &Vec<HashMap<usize, f64>>, n: usize, m: usize) -> Array2<f64> {
@@ -265,7 +273,7 @@ fn compute_unclustered_a(n: usize, a_clusters: &Vec<Vec<usize>>) -> Vec<usize> {
 
 
 
-pub fn bicluster( wadj: &mut Vec<HashMap<usize, f64>>, n:usize, m: usize, cost_coef: f64, split_threshold: f64, markov_power: usize, verbose: usize) -> Vec<Vec<usize>> {
+pub fn bicluster( wadj: &mut Vec<HashMap<usize, f64>>, n:usize, m: usize, cost_coef: f64, split_threshold: f64, markov_power: usize, verbose: usize) -> Biclust {
     let mut nb_operations = 0.;
     let mut nb_deletions = 0.;
     let mut nb_splits = 0.;
@@ -416,7 +424,9 @@ pub fn bicluster( wadj: &mut Vec<HashMap<usize, f64>>, n:usize, m: usize, cost_c
     // Check integrity
     check_integrity(&a_clusters, &b_clusters, n, m);
 
-    compute_clusters(&a_clusters, &b_clusters, n, m)
+    
+    // compute_clusters(&a_clusters, &b_clusters, n, m)
+    Biclust::from_separate_biclusters(n,m, &a_clusters, &b_clusters)
 
 }      
 
@@ -588,11 +598,6 @@ fn check_integrity(a_clusters: &Vec<Vec<usize>>, b_clusters: &Vec<Vec<usize>>, n
 
 
 
-use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
-
-use crate::common::common::{print_matrix, progress_bar};
-
 
 
 pub fn load_wadj_from_csv(file_path: &str, del: &str) -> (Vec<HashMap<usize, f64>>, usize, usize, Vec<String>, Vec<String>, HashMap<String, usize>, HashMap<String, usize>) {
@@ -657,70 +662,6 @@ pub fn load_wadj_from_csv(file_path: &str, del: &str) -> (Vec<HashMap<usize, f64
 
 
     (wadj, n, m, labels_a, labels_b, node_map_a, node_map_b)
-}
-
-
-pub fn compute_overlapping2(biclusters: &Vec<Vec<usize>>, n: usize) -> f64 {
-    let mut result = 0.;
-    for cluster in biclusters {
-        for &x in cluster {
-            if x < n {
-                result += 1.;
-            }
-        }
-    }
-    result / (n as f64)
-}
-
-pub fn print_biclusters_stats(biclusters: &Vec<Vec<usize>>, 
-    cost_coef: f64, 
-    split_threshold: f64, 
-    markov_power: usize,
-     n: usize, labels_a: &Vec<String>, labels_b: &Vec<String>, file_path: Option<&str>) {
-    
-    
-
-    let file_name = match file_path {
-        Some(path) => path.to_string(),
-        None => "biclusters.txt".to_string(),
-    };
-
-    let mut file = File::create(&file_name).expect("Failed to open file");
-    
-    writeln!(file, "# Hyperparameters").unwrap();
-    writeln!(file, "- cost coef: {cost_coef}").unwrap();
-    writeln!(file, "- split threshold: {split_threshold}").unwrap();
-    writeln!(file, "- markov power: {markov_power}").unwrap();
-    
-    writeln!(file, "\n# Results").unwrap();
-
-    
-// - Error: {eta:.6}
-// - Nb isolated A vertices: {}
-// - Nb isolated B vertices: {}
-// - Nb operations: {nb_operations}
-// - Nb splits: {nb_splits}
-// - Nb deletions: {nb_deletions}
-// - Nb additions: {nb_additions}
-
-    writeln!(file, "- Number of biclusters: {}", biclusters.len()).unwrap();
-    writeln!(file, "- A Overlapping: {:.3}", compute_overlapping2(biclusters, n)).unwrap();
-
-    writeln!(file, "").unwrap();
-    writeln!(file, "# Clusters\n").unwrap();
-
-    for bicluster in biclusters {
-        for &x in bicluster {
-            if x < n {
-                write!(file, "{} ", labels_a[x]).unwrap();
-            } else {
-                write!(file, "{} ", labels_b[x-n]).unwrap();
-            }
-        }
-        writeln!(file, "").unwrap();
-    }
-    println!("Biclusters printed to {}", file_name);
-
 }
 
 
