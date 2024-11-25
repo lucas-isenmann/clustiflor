@@ -2,6 +2,7 @@ use std::{collections::HashSet, fs::File};
 use std::io::Write;
 use super::biclustering::Biclustering;
 
+#[derive(Clone)]
 pub struct Biclust {
     n: usize,
     m: usize,
@@ -36,6 +37,69 @@ impl Biclust {
             b.add_bicluster(c);
         }
         b
+    }
+
+    pub fn from_biclusters(n: usize, m: usize, biclusters: &Vec<Vec<usize>>)  -> Self {
+        let mut b = Biclust::new(n,m);
+        for bicluster in biclusters.iter() {
+            b.add_bicluster(bicluster.clone());
+        }
+        
+        b
+    }
+
+    pub fn clear(&mut self) {
+        self.biclusters.clear();
+        for row in 0..self.n {
+            self.rows_memberships[row].clear();
+        }
+        for col in 0..self.m {
+            self.cols_memberships[col].clear();
+        }
+    }
+    
+
+    /// Remove biclusters consisting only of rows or of columns
+    /// Add a 
+    pub fn reduce_isolated(&mut self){
+        let mut biclusters_non_trivial = vec![];
+        let mut isolated_rows = vec![];
+        let mut isolated_cols = vec![];
+
+        for bicluster in self.biclusters.iter() {
+            // Check if bicluster is isolated
+            let mut has_row = false;
+            let mut has_col = false;
+            for &x in bicluster {
+                if x < self.n {
+                    has_row = true;
+                } else {
+                    has_col = true;
+                }
+            }
+            if has_row && has_col {
+                biclusters_non_trivial.push( bicluster.clone());
+            } else {
+                for &x in bicluster {
+                    if x < self.n {
+                        isolated_cols.push(x);
+                    } else {
+                        isolated_rows.push(x);
+                    }
+                }
+            }
+        }
+        self.clear();
+        for bicluster in biclusters_non_trivial.iter() {
+            self.add_bicluster(bicluster.clone());
+        }
+        if isolated_cols.len() > 0 {
+            self.add_bicluster(isolated_cols);
+        } 
+        if isolated_rows.len() > 0 {
+            self.add_bicluster(isolated_rows);
+        }
+
     }
 
     pub fn print(&self) {
@@ -104,7 +168,44 @@ impl Biclust {
         let nb_biclusters = self.biclusters.len();
         let scols = sum/ (nb_biclusters as f64);
 
+
         (scols*srows).sqrt()
+    }
+
+    pub fn f_score(&self, other: &Biclust) -> f64 {
+        let recall = proportion(&self.biclusters, &other.biclusters);
+        let precision = proportion(&other.biclusters, &self.biclusters);
+        2. * recall * precision / (recall + precision)
+    }
+
+
+    pub fn are_together(&self, i: usize, j: usize) -> bool{
+        for bicluster in &self.biclusters {
+            if bicluster.contains(&i) && bicluster.contains(&j){
+                return true
+            }
+        }
+        false
+    }
+
+    pub fn accuracy(&self, other: &Biclust) -> f64 {
+        let mut r = 0;
+        for row in 0..self.n {
+            for col in 0..self.m {
+                if self.are_together(row, col) == other.are_together(row, col) {
+                    r += 1
+                }
+            }
+        }
+        for row1 in 0..self.n {
+            for row2 in 0..row1 {
+                if self.are_together(row1, row2) == other.are_together(row1, row2) {
+                    r += 1
+                }
+            }
+        }
+
+        r as f64 / (self.n * self.m + self.n*(self.n-1)/2 ) as f64
     }
 
 
@@ -176,6 +277,33 @@ impl Biclust {
 
 }
 
+fn has_common(l1: &[usize], l2: &[usize]) -> bool {
+    l1.iter().any(|&x| l2.contains(&x))
+}
+
+fn proportion(a1: &Vec<Vec<usize>>, a2: &Vec<Vec<usize>>) -> f64 {
+    let mut nb_same_a1 = 0;
+    let mut nb_same_a2 = 0;
+
+    for i in 0..a1.len() {
+        for j in 0..i {
+            if has_common(&a1[i], &a1[j]) {
+                nb_same_a1 += 1;
+                if has_common(&a2[i], &a2[j]) {
+                    nb_same_a2 += 1;
+                }
+            }
+        }
+    }
+
+    if nb_same_a1 == 0 {
+        0.0
+    } else {
+        nb_same_a2 as f64 / nb_same_a1 as f64
+    }
+}
+
+
 fn size_intersection(a: &Vec<usize>, b: &Vec<usize>) -> usize {
     let mut r = 0;
     for x in a.iter() {
@@ -198,7 +326,13 @@ fn size_union(a: &Vec<usize>, b: &Vec<usize>) -> usize {
 }
 
 fn jaccard_index(a: &Vec<usize>, b: &Vec<usize>) -> f64 {
-    (size_intersection(a, b) as f64) / (size_union(a, b) as f64)
+    let union_size = size_union(a, b);
+    let inter_size = size_intersection(a,b);
+    if union_size == 0 {
+        1.
+    } else {
+        inter_size as f64 / union_size as f64
+    }
 }
 
 
@@ -270,5 +404,23 @@ mod tests {
         biclust_a.add_bicluster(vec![0,10]);
 
         assert_eq!(biclust_a.matching_score(&biclust_a), 1.0);
+
+
+        // [[0,1]]
+        // [[0], [1]]
+        // matching score is 0
+        let mut b1 = Biclust::new(1, 1);
+        b1.add_bicluster(vec![1]);
+        b1.add_bicluster(vec![0]);
+
+        // let mut b2 = Biclust::new(2,1);
+        // b2.add_bicluster(vec![0,1]);
+        // b1.add_bicluster(vec![2]);
+
+        // b2.add_bicluster(vec![1]);
+        b1.print();
+        // b2.print();
+
+        println!("{}", b1.matching_score(&b1));
     }
 }

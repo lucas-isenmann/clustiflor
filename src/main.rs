@@ -1,14 +1,18 @@
 pub mod biclusters;
 pub mod common;
 
-use std::env;
+use std::time::{Duration, Instant};
+use std::{env, fs::File, process::Command};
+use std::io::Write;
 
-use biclusters::{algo::{bicluster, load_wadj_from_csv, print_wadj_stats}, biclust::Biclust, biclustering::Biclustering, generator::WeightedBiAdjacency, r_results::load_r_biclusters};
+use biclusters::{algo::{bicluster, load_wadj_from_csv, print_wadj_stats}, biclust::Biclust, biclustering::Biclustering, weighted_biadj::WeightedBiAdjacency, r_results::load_r_biclusters};
+use rand::Rng;
 
 struct Args {
     size: f64,
     split: f64,
     power: usize,
+    split_rows: bool,
     verbose: usize
 }
 
@@ -18,20 +22,85 @@ impl Default for Args {
             size: 1.0,
             split: 1.0,
             power: 3,
+            split_rows: true,
             verbose: 0
         }
     }
 }
 
 
-fn main() {
+fn run_comparison(){
+    // Comparison
 
-    let a = WeightedBiAdjacency::rand(5,5, 0.5);
-    a.print();
-    
-    return ;
+    let mut file = File::create("comparison.csv").unwrap();
 
-    
+    writeln!(file, "n m real_noise p_noise p_overlap real_overlap p_separation clusti_ms clusti_time bimax_ms").unwrap();
+
+    for _ in 0..100 {
+        // let n = 10;
+        // let m = 10;
+        // let noise = 0.00;
+        // let row_overlap = 1.02;
+        // let row_separation = 0.8; 
+
+        let mut rng = rand::thread_rng();
+
+        let n = rng.gen_range(10..=100);
+        let m = rng.gen_range(10..=100);
+        let noise = rng.gen_range(0.0..=0.3);
+        let row_overlap = rng.gen_range(1.0..=2.0);
+        let row_separation = rng.gen_range(0.0..=1.0);
+
+
+        let mut wadj = WeightedBiAdjacency::rand(n,m, noise, row_overlap, row_separation);
+        // wadj.print();
+        wadj.write_to_file("bigraphs/synth/test2.adj");
+        wadj.write_to_file("gene.adj");
+        let ground_truth = wadj.get_ground_truth();
+        let wadj_save = wadj.clone(); // Because clustiflor is deleting edges in wadj
+        
+        // Clustiflor
+        let start_time = Instant::now();
+        let clusti_biclusters = bicluster(&mut wadj, 1., 1., 3, 0);
+        let clustiflor_dur = start_time.elapsed();
+        let (labels_a, labels_b, nodes_a_map, nodes_b_map) = wadj.get_labels();
+        // biclusters.print_stats(1., 1., 3, &labels_a, &labels_b, Some(&"yo.biclusters"));
+
+        // R Bimax
+        Command::new("Rscript")
+            .arg("/home/alpaga/lab/clustiflor/script.r")
+            .status().unwrap();
+
+        let r = load_r_biclusters( "r_results.txt", &nodes_a_map, &nodes_b_map);
+        if let Some(ground_truth) = ground_truth {
+            // println!("ground truth");
+            // ground_truth.print();
+            // println!("biclussters");
+            // biclusters.print();
+            // println!("R");
+            // r.print();
+            // println!("{}", ground_truth.matching_score(&biclusters));
+            // println!("{}", ground_truth.matching_score(&r));
+            
+            let cnoise = wadj_save.compute_noise(&ground_truth);
+            let clusti_dur = clustiflor_dur.as_secs_f64();
+            // let clusti_fscore = ground_truth.f_score(&clusti_biclusters);
+            let clusti_accuracy = ground_truth.accuracy(&clusti_biclusters);
+            let gt_overlap = ground_truth.get_rows_overlapping();
+            let bimax_accuracy = ground_truth.accuracy(&r);
+
+            writeln!(file, "{n} {m} {cnoise:.4} {noise:.4} {row_overlap:.4} {gt_overlap:.4} {row_separation:.4} {:.2} {clusti_accuracy:.2} {clusti_dur:.2} {:.2} {bimax_accuracy:.2}", 
+            ground_truth.matching_score(&clusti_biclusters),
+            ground_truth.matching_score(&r)).unwrap();
+
+        }
+    }
+}
+
+
+
+fn run_solver(){
+
     let program_args: Vec<String> = env::args().collect();
 
     let mut args = Args::default();
@@ -40,19 +109,21 @@ fn main() {
     for arg in program_args.iter() {
         if arg.starts_with("--size-sensivity") {
             args.size = arg.split_at(7).1.parse::<f64>().unwrap_or(args.size);
-        } else if arg.starts_with("--split") {
+        } else if arg.starts_with("--split-th") {
             args.split = arg.split_at(8).1.parse::<f64>().unwrap_or(args.split);
             println!("split {}", args.split);
         } else if arg.starts_with("--power") {
             args.power = arg.split_at(8).1.parse::<usize>().unwrap_or(args.power);
         } else if arg.starts_with("--verbose") {
             args.verbose = arg.split_at(10).1.parse::<usize>().unwrap_or(args.verbose);
+        } else if arg.starts_with("--split-cols") {
+            args.split_rows = false;
         }
     }
 
 
     if program_args.len() < 3 {
-        eprintln!("Usage: {} <file_path> <delimiter> --split=<>", program_args[0]);
+        eprintln!("Usage: {} <file_path> <delimiter> --split-th=<number >= 1.>", program_args[0]);
         std::process::exit(1);
     }
 
@@ -62,11 +133,11 @@ fn main() {
     println!("File path: {}", file_path);
     println!("Delimiter: {}", delimiter);
 
-    match load_wadj_from_csv(file_path, delimiter) {
+    match load_wadj_from_csv(file_path, delimiter, args.split_rows) {
         (wadj, n, m, labels_a, labels_b, node_map_a, node_map_b) => {
             print_wadj_stats(&wadj, n, m);
             let mut wadj2 = wadj.clone();
-            let biclusters = bicluster(&mut wadj2, n, m, args.size, args.split, args.power, args.verbose);
+            let biclusters = bicluster(&mut wadj2, args.size, args.split, args.power, args.verbose);
             let results_path = file_path.to_string() + ".biclusters";
             biclusters.print_stats(args.size, args.split, args.power, &labels_a, &labels_b, Some(&results_path));
 
@@ -83,6 +154,17 @@ fn main() {
         }
     }
 
+}
+
+fn main() {
+
+    
+    
+    // run_solver();
+    run_comparison();
+    
+
+    
 
 
     // let (matrix, node_map) = load_adj_list_file("real/kegg.txt", ' ');

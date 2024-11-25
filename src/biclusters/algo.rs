@@ -11,11 +11,13 @@ use std::io::{BufRead, BufReader};
 use crate::biclusters::biclust::Biclust;
 use crate::common::{print_matrix, progress_bar};
 
+use super::weighted_biadj::WeightedBiAdjacency;
+
 
 
 /// Return the transition matrix between B vertices
 /// 
-fn transition_matrix_b(wadj: &Vec<HashMap<usize, f64>>, n: usize, m: usize) -> Array2<f64> {
+fn transition_matrix_b(wadj: &WeightedBiAdjacency, n: usize, m: usize) -> Array2<f64> {
     let mut tm = Array2::zeros((m,m));
 
     let d = compute_degrees(wadj, n, m);
@@ -24,8 +26,8 @@ fn transition_matrix_b(wadj: &Vec<HashMap<usize, f64>>, n: usize, m: usize) -> A
     // tm[i][j] = (sum wxi wxj) / (d[i] d[j])
     for i in 0..m{
         for j in 0..m {
-            for (x,wxi) in wadj[i].iter() {
-                for (y, w) in wadj[j].iter(){
+            for (x,wxi) in wadj.iter(i) {
+                for (y, w) in wadj.iter(j){
                     if x == y {
                         tm[[i,j]] += (wxi*w)/(d[i]*d[x+m]);
                         break;
@@ -59,7 +61,7 @@ fn centered_transition_matrix(  tm: &Array2<f64>, neighbors: &Vec<usize>) -> Arr
     ctm
 }
 
-fn compute_order(wadj: &Vec<HashMap<usize, f64>>, m: usize, vertex: usize, tm_common: &Array2<f64>, markov_power: usize, verbose: usize)
+fn compute_order(wadj: &WeightedBiAdjacency, m: usize, vertex: usize, tm_common: &Array2<f64>, markov_power: usize, verbose: usize)
  -> Vec<(usize,f64)> {
     
     // Search the B vertices which have a common neighbor with vertex
@@ -69,9 +71,9 @@ fn compute_order(wadj: &Vec<HashMap<usize, f64>>, m: usize, vertex: usize, tm_co
         if b == vertex {
             continue;
         }
-        for (x,_) in wadj[b].iter() {
+        for (x,_) in wadj.iter(b){
             let mut found = false;
-            for (y,_) in wadj[vertex].iter() {
+            for (y,_) in wadj.iter(vertex) {
                 if y == x {
                     neighbors.push(b);
                     found = true;
@@ -120,9 +122,9 @@ enum State {
 
 
 
-fn degree(wadj: &Vec<HashMap<usize, f64>>, a: usize, m: usize) -> f64 {
+fn degree(wadj: &WeightedBiAdjacency, a: usize, m: usize) -> f64 {
     let mut d = 0.;
-    for (_,w) in wadj[a+m].iter() {
+    for (_,w) in wadj.iter(a+m) {
         d += w;
     }
     d
@@ -130,7 +132,7 @@ fn degree(wadj: &Vec<HashMap<usize, f64>>, a: usize, m: usize) -> f64 {
 
 ///
 /// cost_coef in [0,1]
-fn best(n:usize, m: usize, order: Vec<(usize, f64)>, wadj: &Vec<HashMap<usize, f64>>, cost_coef: f64, split_threshold: f64) -> (f64, Vec<usize>)  {
+fn best(n:usize, m: usize, order: Vec<(usize, f64)>, wadj: &WeightedBiAdjacency, cost_coef: f64, split_threshold: f64) -> (f64, Vec<usize>)  {
     let mut best_cost = f64::NAN;
     let mut best_cluster = Vec::new();
     let mut b_cluster = Vec::new();
@@ -149,7 +151,7 @@ fn best(n:usize, m: usize, order: Vec<(usize, f64)>, wadj: &Vec<HashMap<usize, f
         s += 1.;
 
         for (x, st) in state.iter_mut(){
-            if wadj[i].contains_key(x) == false {
+            if wadj.has_edgee(*x, i) == false {
                 if *st == State::Positive {
                     if indegree[*x] <= s*0.5 {
                         *st = State::Negative;
@@ -167,7 +169,7 @@ fn best(n:usize, m: usize, order: Vec<(usize, f64)>, wadj: &Vec<HashMap<usize, f
                 }
             }
         }
-        for (&x,&w) in wadj[i].iter() {
+        for (&x,&w) in wadj.iter(i) {
             if state.contains_key(&x) == false {
                 indegree[x] = w;
                 outdegree[x] = degree(wadj, x, m) - w;
@@ -236,16 +238,16 @@ fn best(n:usize, m: usize, order: Vec<(usize, f64)>, wadj: &Vec<HashMap<usize, f
 
 
 
-fn compute_degrees(wadj: &Vec<HashMap<usize, f64>>, n: usize, m: usize) -> Vec<f64> {
+fn compute_degrees(wadj: &WeightedBiAdjacency, n: usize, m: usize) -> Vec<f64> {
     let mut degrees = vec![0.; n+m];
-    for i in 0..m {
-        for (_,w) in wadj[i].iter() {
-            degrees[i] += w;
+    for b in 0..m {
+        for (_,w) in wadj.iter(b) {
+            degrees[b] += w;
         }
     }
-    for x in 0..n {
-        for (_,w) in wadj[x+m].iter() {
-            degrees[x+m] += w;
+    for a in 0..n {
+        for (_,w) in wadj.iter(a+m) {
+            degrees[a+m] += w;
         }
     }
     degrees
@@ -273,7 +275,9 @@ fn compute_unclustered_a(n: usize, a_clusters: &Vec<Vec<usize>>) -> Vec<usize> {
 
 
 
-pub fn bicluster( wadj: &mut Vec<HashMap<usize, f64>>, n:usize, m: usize, cost_coef: f64, split_threshold: f64, markov_power: usize, verbose: usize) -> Biclust {
+pub fn bicluster( wadj: &mut WeightedBiAdjacency, cost_coef: f64, split_threshold: f64, markov_power: usize, verbose: usize) -> Biclust {
+    let n = wadj.get_n();
+    let m = wadj.get_m();
     let mut nb_operations = 0.;
     let mut nb_deletions = 0.;
     let mut nb_splits = 0.;
@@ -288,7 +292,7 @@ pub fn bicluster( wadj: &mut Vec<HashMap<usize, f64>>, n:usize, m: usize, cost_c
 
     let start_instant = Instant::now();
 
-    // While there exists B vertices to cluster
+    // While there exists some B vertices to cluster
     loop {
         
         if verbose >= 1 {
@@ -305,7 +309,7 @@ pub fn bicluster( wadj: &mut Vec<HashMap<usize, f64>>, n:usize, m: usize, cost_c
         // Check if there is a B vertex of degree 0
         let mut has_isolated_b_vertices = false;
         for b in 0..m {
-            if assigned[b] == false && wadj[b].len() == 0 {
+            if assigned[b] == false && wadj.col_degree(b) == 0 {
                 assigned[b] = true;
                 nb_assigned += 1;
                 isolated_b_vertices.push(b);
@@ -337,7 +341,7 @@ pub fn bicluster( wadj: &mut Vec<HashMap<usize, f64>>, n:usize, m: usize, cost_c
 
             // Compute order of b
             let mut d = 0.;
-            for (_,w) in wadj[b].iter() {
+            for (_,w) in wadj.iter(b) {
                 d += w;
             }
             let order = 
@@ -437,20 +441,9 @@ pub fn bicluster( wadj: &mut Vec<HashMap<usize, f64>>, n:usize, m: usize, cost_c
 
 
 
-fn delete_edge(wadj: &mut Vec<HashMap<usize, f64>>, a: usize, b: usize, m: usize) {
-    wadj[a+m].remove(&b);
-    wadj[b].remove(&a);
-}
-
-fn add_edge(wadj: &mut Vec<HashMap<usize, f64>>, a: usize, b: usize, weight: f64, m: usize) {
-    wadj[a+m].insert(b, weight);
-    wadj[b].insert(a, weight);
-}
 
 
-
-
-fn apply_operations(n: usize, m: usize, b_cluster: Vec<usize>, wadj: &mut Vec<HashMap<usize, f64>>, split_threshold: f64, verbose: usize) -> (Vec<usize>, f64, f64, f64) {
+fn apply_operations(n: usize, m: usize, b_cluster: Vec<usize>, wadj: &mut WeightedBiAdjacency, split_threshold: f64, verbose: usize) -> (Vec<usize>, f64, f64, f64) {
     let mut a_cluster = vec![];
     let mut nb_deletions = 0.;
     let mut nb_splits = 0.;
@@ -459,7 +452,7 @@ fn apply_operations(n: usize, m: usize, b_cluster: Vec<usize>, wadj: &mut Vec<Ha
 
     for a in 0..n {
         let mut indegree = 0.;
-        for (i,w) in wadj[a+m].iter() {
+        for (i,w) in wadj.iter(a+m) {
             if b_cluster.contains(&i) {
                 indegree += w;
             }
@@ -469,14 +462,14 @@ fn apply_operations(n: usize, m: usize, b_cluster: Vec<usize>, wadj: &mut Vec<Ha
             nb_additions += blen - indegree;
 
             for &b in b_cluster.iter() {
-                if wadj[b].contains_key(&a) {
-                    delete_edge(wadj, a, b, m);
+                if wadj.has_edgee(a, b) {
+                    wadj.delete_edge(a, b);
                 }   
             }
 
             // Compute the number of neighbors of vertex 'a' outside of X
             let mut out_degree = 0.;
-            for (i,w) in wadj[a+m].iter() {
+            for (i,w) in wadj.iter(a+m) {
                 if b_cluster.contains(&i) == false {
                     out_degree += w;
                 }
@@ -485,12 +478,12 @@ fn apply_operations(n: usize, m: usize, b_cluster: Vec<usize>, wadj: &mut Vec<Ha
             // Delete case
             if out_degree <= split_threshold {
                 nb_deletions += out_degree;
-                for i in 0..m {
-                    if b_cluster.contains(&i) == false && wadj[i].contains_key(&a) {
+                for b in 0..m {
+                    if b_cluster.contains(&b) == false && wadj.has_edgee(a, b) {
                         if verbose >= 2 {
-                            println!("delete {a} {i}")
+                            println!("delete {a} {b}")
                         }
-                        delete_edge(wadj, a, i, m);
+                        wadj.delete_edge(a, b);
                     }
                 }
             } 
@@ -500,9 +493,9 @@ fn apply_operations(n: usize, m: usize, b_cluster: Vec<usize>, wadj: &mut Vec<Ha
                 if verbose >= 2 {
                     println!("split {a}")
                 }
-                for b in b_cluster.iter() {
-                    if wadj[*b].contains_key(&a) {
-                        delete_edge(wadj, a, *b, m)
+                for &b in b_cluster.iter() {
+                    if wadj.has_edgee(a, b) {
+                        wadj.delete_edge(a, b);
                     }
                 }
             }
@@ -512,12 +505,12 @@ fn apply_operations(n: usize, m: usize, b_cluster: Vec<usize>, wadj: &mut Vec<Ha
         }
         else {
             nb_deletions += indegree;
-            for i in b_cluster.iter() {
-                if wadj[*i].contains_key(&a) {
+            for &b in b_cluster.iter() {
+                if wadj.has_edgee(a, b) {
                     if verbose >= 2 {
-                        println!("delete {a} {i}")
+                        println!("delete {a} {b}")
                     }
-                    delete_edge(wadj, a,*i, m);
+                    wadj.delete_edge(a, b);
                 }
             }
         }
@@ -600,7 +593,7 @@ fn check_integrity(a_clusters: &Vec<Vec<usize>>, b_clusters: &Vec<Vec<usize>>, n
 
 
 
-pub fn load_wadj_from_csv(file_path: &str, del: &str) -> (Vec<HashMap<usize, f64>>, usize, usize, Vec<String>, Vec<String>, HashMap<String, usize>, HashMap<String, usize>) {
+pub fn load_wadj_from_csv(file_path: &str, del: &str, split_rows: bool) -> (WeightedBiAdjacency, usize, usize, Vec<String>, Vec<String>, HashMap<String, usize>, HashMap<String, usize>) {
 
     let file = File::open(file_path).expect("Failed to open file");
     let reader = BufReader::new(file);
@@ -627,8 +620,17 @@ pub fn load_wadj_from_csv(file_path: &str, del: &str) -> (Vec<HashMap<usize, f64
                 continue; 
             }
 
-            let node1 = String::from(values[0]);
-            let node2 = String::from(values[1]);
+
+            let node1 = if split_rows {
+                String::from(values[0])
+            } else {
+                String::from(values[1])
+            };
+            let node2 = if split_rows {
+                String::from(values[1])
+            } else {
+                String::from(values[0])
+            };
 
             // Add both nodes to the maps if not already present
             if !node_map_a.contains_key(&node1) {
@@ -653,10 +655,9 @@ pub fn load_wadj_from_csv(file_path: &str, del: &str) -> (Vec<HashMap<usize, f64
         }
     }
 
-    let mut wadj = vec![HashMap::new(); n+m];
+    let mut wadj = WeightedBiAdjacency::new(n, m);
     for &(a,b,w) in edges.iter() {
-        wadj[a+m].insert(b, w);
-        wadj[b].insert(a,w);
+        wadj.add_edge(a, b, w);
     }
 
 
@@ -668,7 +669,7 @@ pub fn load_wadj_from_csv(file_path: &str, del: &str) -> (Vec<HashMap<usize, f64
 
 
 
-pub fn print_wadj_stats(wadj: &Vec<HashMap<usize, f64>>, n: usize, m: usize){
+pub fn print_wadj_stats(wadj: &WeightedBiAdjacency, n: usize, m: usize){
 
 
 
@@ -681,8 +682,8 @@ pub fn print_wadj_stats(wadj: &Vec<HashMap<usize, f64>>, n: usize, m: usize){
     let mut ne = 0;
     let mut density = 0.;
     for b in 0..m {
-        ne += wadj[b].len();
-        for (_, &w) in wadj[b].iter() {
+        ne += wadj.col_degree(b);
+        for (_, &w) in wadj.iter(b) {
             if maxw.is_nan() || w > maxw {
                 maxw = w;
             }
