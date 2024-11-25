@@ -34,9 +34,9 @@ fn run_comparison(){
 
     let mut file = File::create("comparison.csv").unwrap();
 
-    writeln!(file, "n m real_noise p_noise p_overlap real_overlap p_separation clusti_ms clusti_time bimax_ms").unwrap();
+    writeln!(file, "n m real_noise p_noise real_overlap p_overlap p_separation CF_mtc CF_acc CF_time_s BM_mtc BM_acc").unwrap();
 
-    for _ in 0..100 {
+    for _ in 0..1000 {
         // let n = 10;
         // let m = 10;
         // let noise = 0.00;
@@ -47,7 +47,7 @@ fn run_comparison(){
 
         let n = rng.gen_range(10..=100);
         let m = rng.gen_range(10..=100);
-        let noise = rng.gen_range(0.0..=0.3);
+        let noise = rng.gen_range(0.0..=0.1);
         let row_overlap = rng.gen_range(1.0..=2.0);
         let row_separation = rng.gen_range(0.0..=1.0);
 
@@ -68,7 +68,7 @@ fn run_comparison(){
 
         // R Bimax
         Command::new("Rscript")
-            .arg("/home/alpaga/lab/clustiflor/script.r")
+            .arg("./script.r")
             .status().unwrap();
 
         let r = load_r_biclusters( "r_results.txt", &nodes_a_map, &nodes_b_map);
@@ -82,14 +82,14 @@ fn run_comparison(){
             // println!("{}", ground_truth.matching_score(&biclusters));
             // println!("{}", ground_truth.matching_score(&r));
             
-            let cnoise = wadj_save.compute_noise(&ground_truth);
+            let real_noise = wadj_save.compute_noise(&ground_truth);
             let clusti_dur = clustiflor_dur.as_secs_f64();
             // let clusti_fscore = ground_truth.f_score(&clusti_biclusters);
             let clusti_accuracy = ground_truth.accuracy(&clusti_biclusters);
-            let gt_overlap = ground_truth.get_rows_overlapping();
+            let real_overlap = ground_truth.get_rows_overlapping();
             let bimax_accuracy = ground_truth.accuracy(&r);
 
-            writeln!(file, "{n} {m} {cnoise:.4} {noise:.4} {row_overlap:.4} {gt_overlap:.4} {row_separation:.4} {:.2} {clusti_accuracy:.2} {clusti_dur:.2} {:.2} {bimax_accuracy:.2}", 
+            writeln!(file, "{n} {m} {real_noise:.4} {noise:.4} {real_overlap:.4} {row_overlap:.4} {row_separation:.4} {:.2} {clusti_accuracy:.2} {clusti_dur:.2} {:.2} {bimax_accuracy:.2}", 
             ground_truth.matching_score(&clusti_biclusters),
             ground_truth.matching_score(&r)).unwrap();
 

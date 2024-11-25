@@ -154,11 +154,8 @@ impl WeightedBiAdjacency {
         // For each b vertex, choose a random bicluster among the k biclusters
         for b in 0..m {
             shuffle(&mut biclusters_indices);
-            println!("col: {b} bicluster_id:{}", biclusters_indices[0]);
             for &a in biclusters[biclusters_indices[0]].iter() {
-                println!("{a} is in bicluster");
                 if a < n {
-                    println!("add edge {a} {b}");
                     wadj.add_edge(a, b, 1.);
                 }
             }
@@ -215,6 +212,17 @@ impl WeightedBiAdjacency {
         } else {
             0.
         }
+    }
+
+    /// Density is a number in [0,1]
+    /// Density of 1 if the graph is a biclique
+    /// Density of 0 if the graph is empty
+    pub fn density(&self) -> f64 {
+        let mut s = 0;
+        for col in 0..self.m {
+            s += self.wadj[col].len()
+        }
+        s as f64 / (self.n * self.m) as f64
     }
 
     /// Noise is the ratio of false edges over the number of possible edges (n*m)

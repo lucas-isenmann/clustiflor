@@ -103,12 +103,16 @@ impl Biclust {
     }
 
     pub fn print(&self) {
+        print!("[");
         for bicluster in self.biclusters.iter() {
             println!("{:?}", bicluster);
         }
+        print!("]");
     }
 
-    /// Matching score
+    /// Matching score returning a float in [0,1]
+    /// Geometric mean of the average of the maximum of the Jaccard index between a rows cluster of A and the rows cluster of B and the same for the cols
+    /// 
     /// Defined in https://appliednetsci.springeropen.com/articles/10.1007/s41109-019-0180-x
     /// Preli et al 2006
     /// Eren et al. 2012
@@ -179,6 +183,7 @@ impl Biclust {
     }
 
 
+    /// Return true iff there exist a bicluster containing i and j
     pub fn are_together(&self, i: usize, j: usize) -> bool{
         for bicluster in &self.biclusters {
             if bicluster.contains(&i) && bicluster.contains(&j){
@@ -188,24 +193,28 @@ impl Biclust {
         false
     }
 
+    /// Return 1 if self and other agree on every (row,col) edges
+    /// In general return the proportion of pairs in the rows x cols bipartition such that both biclusters agree on it.
+    /// By "agree" we mean that either there exists in both a bicluster which contains row and col, either there exists no bicluster containing row and col in both
     pub fn accuracy(&self, other: &Biclust) -> f64 {
         let mut r = 0;
         for row in 0..self.n {
             for col in 0..self.m {
-                if self.are_together(row, col) == other.are_together(row, col) {
+                if self.are_together(row, self.n + col) == other.are_together(row, self.n + col) {
                     r += 1
                 }
             }
         }
-        for row1 in 0..self.n {
-            for row2 in 0..row1 {
-                if self.are_together(row1, row2) == other.are_together(row1, row2) {
-                    r += 1
-                }
-            }
-        }
+        // for row1 in 0..self.n {
+        //     for row2 in 0..row1 {
+        //         if self.are_together(row1, row2) == other.are_together(row1, row2) {
+        //             r += 1
+        //         }
+        //     }
+        // }
 
-        r as f64 / (self.n * self.m + self.n*(self.n-1)/2 ) as f64
+        // r as f64 / (self.n * self.m + self.n*(self.n-1)/2 ) as f64
+        r as f64 / (self.n * self.m) as f64
     }
 
 
@@ -399,28 +408,82 @@ mod tests {
     use super::*;
 
     #[test]
-    fn matching_score_self_equals_1() {
-        let mut biclust_a = Biclust::new(10, 10);
-        biclust_a.add_bicluster(vec![0,10]);
+    fn matching_score_tests() {
+        // let mut biclust_a = Biclust::new(10, 10);
+        // biclust_a.add_bicluster(vec![0,10]);
 
-        assert_eq!(biclust_a.matching_score(&biclust_a), 1.0);
+        // assert_eq!(biclust_a.matching_score(&biclust_a), 1.0);
 
 
-        // [[0,1]]
-        // [[0], [1]]
-        // matching score is 0
-        let mut b1 = Biclust::new(1, 1);
-        b1.add_bicluster(vec![1]);
-        b1.add_bicluster(vec![0]);
 
-        // let mut b2 = Biclust::new(2,1);
-        // b2.add_bicluster(vec![0,1]);
-        // b1.add_bicluster(vec![2]);
+        // // Same biclusters should give 1
+        // let b1 = Biclust::from_biclusters(2, 2, 
+        //     &vec![
+        //         vec![0,2],
+        //         vec![1,3]]);
+        // let b2 = Biclust::from_biclusters(2, 2, 
+        //     &vec![
+        //         vec![0,2],
+        //         vec![1,3]]);
+        // assert_eq!(b1.matching_score(&b2), 1.0);  
 
-        // b2.add_bicluster(vec![1]);
-        b1.print();
-        // b2.print();
+        // // With one edge in more
+        // let b1 = Biclust::from_biclusters(2, 2, 
+        //     &vec![
+        //         vec![0,1,2],
+        //         vec![1,3]]);
+        // let b2 = Biclust::from_biclusters(2, 2, 
+        //     &vec![
+        //         vec![0,2],
+        //         vec![1,3]]);
+        // // assert_eq!(b1.matching_score(&b2), 0.75);  
 
-        println!("{}", b1.matching_score(&b1));
+        // 
+        let b1 = Biclust::from_biclusters(2, 2, 
+            &vec![
+                vec![0,2,3],
+                vec![1,3]]);
+        let b2 = Biclust::from_biclusters(2, 2, 
+            &vec![
+                vec![0,2],
+                vec![0,1,3]]);
+        assert_eq!(b1.matching_score(&b2), 0.75);  
+        assert_eq!(b2.matching_score(&b1), 0.75);  
+    }
+
+
+    #[test]
+    fn accuracy_test() {
+        let b1 = Biclust::from_biclusters(2, 2, 
+            &vec![
+                vec![0,2],
+                vec![1,3]]);
+        let b2 = Biclust::from_biclusters(2, 2, 
+            &vec![
+                vec![0,2],
+                vec![1,3]]);
+        assert_eq!(b1.accuracy(&b2), 1.0);  
+
+        let b1 = Biclust::from_biclusters(2, 2, 
+            &vec![
+                vec![0,1,2],
+                vec![1,3]]);
+        let b2 = Biclust::from_biclusters(2, 2, 
+            &vec![
+                vec![0,2],
+                vec![1,3]]);
+        assert_eq!(b1.accuracy(&b2), 0.75);  
+
+
+        let b1 = Biclust::from_biclusters(2, 2, 
+            &vec![
+                vec![0,2,3],
+                vec![1,3]]);
+        let b2 = Biclust::from_biclusters(2, 2, 
+            &vec![
+                vec![0,2],
+                vec![0,1,3]]);
+        assert_eq!(b1.accuracy(&b2), 1.0);  
+
     }
 }
