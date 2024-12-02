@@ -247,6 +247,25 @@ impl WeightedBiAdjacency {
         nb_erros as f64 / (self.n * self.m) as f64
     }
 
+
+    /// If weight is 0 or 1 then min error is 0
+    /// If weight is 0.5 then min error is 0.5 for this edge. You need at least 0.5 operation to solve it
+    pub fn compute_min_error(&self) -> f64 {
+        let mut r = 0.;
+        for row in 0..self.n {
+            for col in 0..self.m {
+                if let Some(&w) = self.wadj[col].get(&row) {
+                    if w > 0.5 {
+                        r += 1.- w;
+                    } else {
+                        r += w
+                    }
+                }
+           } 
+        }
+        r / (self.n * self.m) as f64
+    }
+
 }
 
 

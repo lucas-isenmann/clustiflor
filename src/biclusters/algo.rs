@@ -276,6 +276,10 @@ fn compute_unclustered_a(n: usize, a_clusters: &Vec<Vec<usize>>) -> Vec<usize> {
 
 
 pub fn bicluster( wadj: &mut WeightedBiAdjacency, cost_coef: f64, split_threshold: f64, markov_power: usize, verbose: usize) -> Biclust {
+
+    let min_error = wadj.compute_min_error();
+
+
     let n = wadj.get_n();
     let m = wadj.get_m();
     let mut nb_operations = 0.;
@@ -406,8 +410,9 @@ pub fn bicluster( wadj: &mut WeightedBiAdjacency, cost_coef: f64, split_threshol
         b_clusters.push(vec![]);
     }
 
-    let eta = (nb_additions as f64 + nb_deletions as f64) / ((n *m) as f64);
-
+    let eta = (nb_additions + nb_deletions ) / ((n *m) as f64);
+    let eta = eta-min_error;
+    
     // Print results
     println!("");
     println!("# Hyperparameters");
@@ -416,13 +421,13 @@ pub fn bicluster( wadj: &mut WeightedBiAdjacency, cost_coef: f64, split_threshol
     println!("- markov power: {markov_power}");
     println!("
 # Results
-- Error: {eta:.6}
+- Adjusted Error: {eta:.6}
 - Nb isolated A vertices: {}
 - Nb isolated B vertices: {}
-- Nb operations: {nb_operations}
+- Nb operations: {nb_operations:.3}
 - Nb splits: {nb_splits}
-- Nb deletions: {nb_deletions}
-- Nb additions: {nb_additions}
+- Nb deletions: {nb_deletions:.3}
+- Nb additions: {nb_additions:.3}
 ", unclustered_a.len(), isolated_b_vertices.len());
 
     // Check integrity
@@ -700,6 +705,7 @@ pub fn print_wadj_stats(wadj: &WeightedBiAdjacency, n: usize, m: usize){
     println!("- Min weight: {minw}");
     println!("- Max weight: {maxw}");
     println!("- Avg weight: {density:.3}");
+    println!("- Min error: {:.3}", wadj.compute_min_error());
 
 
 }
