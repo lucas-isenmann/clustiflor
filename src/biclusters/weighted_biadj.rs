@@ -51,9 +51,10 @@ impl WeightedBiAdjacency {
     }
 
 
-    pub fn write_to_file(&self, filename: &str)  {
+    pub fn write_to_file(&self, filename: &str, header: &str)  {
         let mut file = File::create(filename).unwrap();
 
+        writeln!(file, "{header}").unwrap();
         writeln!(file, "# n={} m={}", self.n, self.m).unwrap();
 
         for a in 0..self.n {

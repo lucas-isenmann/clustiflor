@@ -1,5 +1,6 @@
+use std::collections::HashMap;
 use std::{collections::HashSet, fs::File};
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use super::biclustering::Biclustering;
 
 #[derive(Clone)]
@@ -145,6 +146,67 @@ impl Biclust {
         
     }
 
+
+    fn load_from_file(
+        file_path: &str, 
+        node_map_a: &HashMap<String, usize>,  
+        node_map_b: &HashMap<String, usize>) -> Biclust {
+
+
+        let file = File::open(file_path).expect("Failed to open file");
+        let reader = BufReader::new(file);
+
+        let n = node_map_a.len();
+        let m = node_map_b.len();
+        let mut clustered_rows = vec![false; n];
+        let mut clustered_cols = vec![false; m];
+        let mut biclusters = Biclust::new(n, m);
+
+        let mut bicluster = vec![];
+
+        for (_, line) in reader.lines().enumerate() {
+            if let Ok(line) = line {
+                bicluster.clear();
+                let values: Vec<&str> = line.split(" ").collect();
+
+                for  x in values {
+                    if let Some(&nx) = node_map_a.get(x){
+                        clustered_rows[nx] = true;
+                        bicluster.push(nx);
+                    } 
+                    else if let Some(&nx) = node_map_b.get(x) {
+                        clustered_cols[nx] = true;
+                        bicluster.push(nx);
+                    }
+                }
+            }
+        }
+
+        let mut isolated_rows = vec![];
+        for row in 0..n {
+            if clustered_rows[row] == false {
+                isolated_rows.push(row);
+            }
+        }
+        if isolated_rows.len() > 0 {
+            biclusters.add_bicluster(isolated_rows);
+        }
+
+        let mut isolated_cols = vec![];
+        for col in 0..m {
+            if clustered_cols[col] == false {
+                isolated_cols.push(n+col);
+            }
+        }
+        if isolated_cols.len() > 0 {
+            biclusters.add_bicluster(isolated_cols);
+        }
+        biclusters
+    }
+
+
+
+
     /// Matching score returning a float in [0,1]
     /// Geometric mean of the average of the maximum of the Jaccard index between a rows cluster of A and the rows cluster of B and the same for the cols
     /// 
@@ -212,8 +274,12 @@ impl Biclust {
     }
 
     pub fn f_score(&self, other: &Biclust) -> f64 {
+        println!("recall");
         let recall = proportion(&self.biclusters, &other.biclusters);
+        println!("{recall}");
+        println!("preicision");
         let precision = proportion(&other.biclusters, &self.biclusters);
+        println!("{precision}");
         2. * recall * precision / (recall + precision)
     }
 
@@ -321,8 +387,18 @@ impl Biclust {
 
 }
 
+
+
+/// Returns true if the two arrays have a common values
+/// 
 fn has_common(l1: &[usize], l2: &[usize]) -> bool {
-    l1.iter().any(|&x| l2.contains(&x))
+    for x in l1.iter() {
+        if l2.contains(x) {
+            return true;
+        }
+    }
+    false
+    // l1.iter().any(|&x| l2.contains(&x))
 }
 
 fn proportion(a1: &Vec<Vec<usize>>, a2: &Vec<Vec<usize>>) -> f64 {
@@ -442,6 +518,7 @@ impl Biclustering for Biclust {
 mod tests {
     use super::*;
 
+
     #[test]
     fn matching_score_tests() {
         // let mut biclust_a = Biclust::new(10, 10);
@@ -451,27 +528,27 @@ mod tests {
 
 
 
-        // // Same biclusters should give 1
-        // let b1 = Biclust::from_biclusters(2, 2, 
-        //     &vec![
-        //         vec![0,2],
-        //         vec![1,3]]);
-        // let b2 = Biclust::from_biclusters(2, 2, 
-        //     &vec![
-        //         vec![0,2],
-        //         vec![1,3]]);
-        // assert_eq!(b1.matching_score(&b2), 1.0);  
+        // Same biclusters should give 1
+        let b1 = Biclust::from_biclusters(2, 2, 
+            &vec![
+                vec![0,2],
+                vec![1,3]]);
+        let b2 = Biclust::from_biclusters(2, 2, 
+            &vec![
+                vec![0,2],
+                vec![1,3]]);
+        assert_eq!(b1.matching_score(&b2), 1.0);  
 
-        // // With one edge in more
-        // let b1 = Biclust::from_biclusters(2, 2, 
-        //     &vec![
-        //         vec![0,1,2],
-        //         vec![1,3]]);
-        // let b2 = Biclust::from_biclusters(2, 2, 
-        //     &vec![
-        //         vec![0,2],
-        //         vec![1,3]]);
-        // // assert_eq!(b1.matching_score(&b2), 0.75);  
+        // With one edge in more
+        let b1 = Biclust::from_biclusters(2, 2, 
+            &vec![
+                vec![0,1,2],
+                vec![1,3]]);
+        let b2 = Biclust::from_biclusters(2, 2, 
+            &vec![
+                vec![0,2],
+                vec![1,3]]);
+        // assert_eq!(b1.matching_score(&b2), 0.75);  
 
         // 
         let b1 = Biclust::from_biclusters(2, 2, 

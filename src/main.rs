@@ -42,7 +42,9 @@ fn gen_batch(batch_size: usize){
 
 
         let wadj = WeightedBiAdjacency::rand(n,m, noise, row_overlap, row_separation);
-        wadj.write_to_file(&format!("{base_name}/{i}.edges") );
+
+        wadj.write_to_file(&format!("{base_name}/{i}.edges"), &format!("# n={n} m={m} noise={noise:.3} row_overlap={row_overlap:.3} row_separation={row_separation:.3}") );
+
         let ground_truth = wadj.get_ground_truth();
         let (labels_a, labels_b, nodes_a_map, nodes_b_map) = wadj.get_labels();
 
@@ -78,8 +80,8 @@ fn run_comparison(){
 
         let mut wadj = WeightedBiAdjacency::rand(n,m, noise, row_overlap, row_separation);
         // wadj.print();
-        wadj.write_to_file("bigraphs/synth/test2.adj");
-        wadj.write_to_file("gene.adj");
+        wadj.write_to_file("bigraphs/synth/test2.adj", "");
+        wadj.write_to_file("gene.adj", "");
         let ground_truth = wadj.get_ground_truth();
         let wadj_save = wadj.clone(); // Because clustiflor is deleting edges in wadj
         
