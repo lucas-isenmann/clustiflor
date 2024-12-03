@@ -34,8 +34,8 @@ impl WeightedBiAdjacency {
         let mut labels_b = vec![];
         let mut nodes_b_map = HashMap::new();
         for b in 0..m {
-            labels_b.push(b.to_string());
-            nodes_b_map.insert(b.to_string(), b);
+            labels_b.push((n+b).to_string());
+            nodes_b_map.insert((n+b).to_string(), b);
         }
 
         WeightedBiAdjacency {
@@ -58,7 +58,7 @@ impl WeightedBiAdjacency {
 
         for a in 0..self.n {
             for (&b,_) in self.wadj[a+self.m].iter() {
-                writeln!(file, "{a} {b}").unwrap();
+                writeln!(file, "{} {}", self.labels_a[a], self.labels_b[b]).unwrap();
             }
         }
        
@@ -117,7 +117,10 @@ impl WeightedBiAdjacency {
 
     
 
-    /// p is the noise
+    /// noise is the average number of fliped edges
+    /// row_overlap >= 1: row_overlap = 1 then each row is a unique bicluster
+    /// it is the average number of biclusters a row is in
+    /// row_separation >= 1
     pub fn rand(n: usize, m: usize, noise: f64, row_overlap: f64, row_separation: f64  ) -> Self{
         let mut wadj = WeightedBiAdjacency::new(n,m);
         let mut rng = rand::thread_rng();
@@ -165,7 +168,6 @@ impl WeightedBiAdjacency {
 
         
         let mut gt = Biclust::from_biclusters(n, m, &biclusters);
-        gt.print();
         gt.reduce_isolated();
         wadj.ground_truth = Some(gt);
 

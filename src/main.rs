@@ -28,6 +28,30 @@ impl Default for Args {
     }
 }
 
+fn gen_batch(batch_size: usize){
+    let base_name = "bigraphs/synth/batch";
+    for i in 0..batch_size {
+
+        let mut rng = rand::thread_rng();
+
+        let n = rng.gen_range(10..=100);
+        let m = rng.gen_range(10..=100);
+        let noise = rng.gen_range(0.0..=0.1);
+        let row_overlap = rng.gen_range(1.0..=2.0);
+        let row_separation = rng.gen_range(0.0..=1.0);
+
+
+        let wadj = WeightedBiAdjacency::rand(n,m, noise, row_overlap, row_separation);
+        wadj.write_to_file(&format!("{base_name}/{i}.edges") );
+        let ground_truth = wadj.get_ground_truth();
+        let (labels_a, labels_b, nodes_a_map, nodes_b_map) = wadj.get_labels();
+
+        if let Some(ground_truth) = ground_truth {
+            ground_truth.write_to_file( &format!("{base_name}/{i}.ground_truth"), Some((labels_a, labels_b)));
+        }
+    }
+}
+
 
 fn run_comparison(){
     // Comparison
@@ -159,9 +183,10 @@ fn run_solver(){
 fn main() {
 
     
+    gen_batch(3);
     
     // run_solver();
-    run_comparison();
+    // run_comparison();
     
 
     

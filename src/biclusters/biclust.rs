@@ -110,6 +110,41 @@ impl Biclust {
         print!("]");
     }
 
+    pub fn write_to_file(&self, filename: &str, labels: Option<(Vec<String>, Vec<String>)> )  {
+        let mut file = File::create(filename).unwrap();
+
+        if let Some((labels_a, labels_b)) = labels {
+            for bicluster in self.biclusters.iter() {
+                let mut temp_string = String::new();
+                for (index, &x) in bicluster.iter().enumerate() {
+                    if x < self.n {
+                        temp_string.push_str(&labels_a[x]);
+                    } else {
+                        temp_string.push_str(&labels_b[x-self.n]);
+                    }
+                    
+                    if index < bicluster.len() - 1 {
+                        temp_string.push(' ');
+                    }
+                }
+                writeln!(file, "{}", temp_string).unwrap();
+            }
+        } else {
+            for bicluster in self.biclusters.iter() {
+                let mut temp_string = String::new();
+                for (index, x) in bicluster.iter().enumerate() {
+                    temp_string.push_str(&x.to_string());
+                    if index < bicluster.len() - 1 {
+                        temp_string.push(' ');
+                    }
+                }
+                writeln!(file, "{}", temp_string).unwrap();
+            }
+        }
+
+        
+    }
+
     /// Matching score returning a float in [0,1]
     /// Geometric mean of the average of the maximum of the Jaccard index between a rows cluster of A and the rows cluster of B and the same for the cols
     /// 
