@@ -3,7 +3,7 @@ pub mod common;
 
 use std::time::{Duration, Instant};
 use std::{env, fs::File, process::Command};
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 
 use biclusters::{algo::{bicluster, load_wadj_from_csv, print_wadj_stats}, biclust::Biclust, biclustering::Biclustering, weighted_biadj::WeightedBiAdjacency, r_results::load_r_biclusters};
 use rand::Rng;
@@ -54,6 +54,29 @@ fn gen_batch(batch_size: usize){
     }
 }
 
+pub fn read_duration_file(
+    file_path: &str ) -> f64 {
+
+    let file = File::open(file_path).expect("Failed to open file");
+    let reader = BufReader::new(file);
+
+    for line in reader.lines() {
+        match line {
+            Ok(line) => {
+                println!("read: {line}");
+                let line = line.trim();
+                if let Ok(duration) = line.parse::<f64>() {
+                    println!("{duration}");
+                    return duration;
+                }
+            },
+            Err(_) => {},
+        }
+    }
+    println!("cant read {file_path}");
+    0.
+}
+
 
 fn run_comparison(){
     // Comparison
@@ -62,7 +85,7 @@ fn run_comparison(){
 
     writeln!(file, "n m real_noise p_noise real_overlap p_overlap p_separation CF_mtc CF_acc CF_time_s BM_mtc BM_acc").unwrap();
 
-    for _ in 0..1000 {
+    for _ in 0..10000 {
         // let n = 10;
         // let m = 10;
         // let noise = 0.00;
@@ -71,23 +94,23 @@ fn run_comparison(){
 
         let mut rng = rand::thread_rng();
 
-        let n = rng.gen_range(10..=100);
-        let m = rng.gen_range(10..=100);
-        let noise = rng.gen_range(0.0..=0.1);
+        let n = rng.gen_range(10..=140);
+        let m = rng.gen_range(10..=140);
+        let noise = rng.gen_range(0.0..=0.2);
         let row_overlap = rng.gen_range(1.0..=2.0);
         let row_separation = rng.gen_range(0.0..=1.0);
 
 
         let mut wadj = WeightedBiAdjacency::rand(n,m, noise, row_overlap, row_separation);
         // wadj.print();
-        wadj.write_to_file("bigraphs/synth/test2.adj", "");
-        wadj.write_to_file("gene.adj", "");
+        wadj.write_to_file("bigraphs/synth/test2.adj", "#");
+        wadj.write_to_file("gene.adj", "#");
         let ground_truth = wadj.get_ground_truth();
         let wadj_save = wadj.clone(); // Because clustiflor is deleting edges in wadj
         
         // Clustiflor
         let start_time = Instant::now();
-        let clusti_biclusters = bicluster(&mut wadj, 1., 1., 3, 0);
+        let (clusti_biclusters, clusti_stats) = bicluster(&mut wadj, 1., 1., 3, 0);
         let clustiflor_dur = start_time.elapsed();
         let (labels_a, labels_b, nodes_a_map, nodes_b_map) = wadj.get_labels();
         // biclusters.print_stats(1., 1., 3, &labels_a, &labels_b, Some(&"yo.biclusters"));
@@ -97,7 +120,18 @@ fn run_comparison(){
             .arg("./script.r")
             .status().unwrap();
 
-        let r = load_r_biclusters( "r_results.txt", &nodes_a_map, &nodes_b_map);
+        let bimax_results = load_r_biclusters( "bimax_results.txt", &nodes_a_map, &nodes_b_map);
+        let bimax_duration = read_duration_file("bimax_duration.txt");
+
+        
+        // Bibit
+        Command::new("python3")
+            .arg("./bibit2.py")
+            .status().unwrap();
+
+        let bibit_results = load_r_biclusters( "bibit_results.txt", &nodes_a_map, &nodes_b_map);
+        let bibit_duration = read_duration_file("bibit_duration.txt");
+        
         if let Some(ground_truth) = ground_truth {
             // println!("ground truth");
             // ground_truth.print();
@@ -113,11 +147,13 @@ fn run_comparison(){
             // let clusti_fscore = ground_truth.f_score(&clusti_biclusters);
             let clusti_accuracy = ground_truth.accuracy(&clusti_biclusters);
             let real_overlap = ground_truth.get_rows_overlapping();
-            let bimax_accuracy = ground_truth.accuracy(&r);
+            let bimax_accuracy = ground_truth.accuracy(&bimax_results);
 
-            writeln!(file, "{n} {m} {real_noise:.4} {noise:.4} {real_overlap:.4} {row_overlap:.4} {row_separation:.4} {:.2} {clusti_accuracy:.2} {clusti_dur:.2} {:.2} {bimax_accuracy:.2}", 
+            writeln!(file, "{n} {m} {real_noise:.4} {noise:.4} {real_overlap:.4} {row_overlap:.4} {row_separation:.4} {:.2}  {clusti_dur:.2} {:.2} {bimax_duration:.4} {:.2} {bibit_duration}", 
             ground_truth.matching_score(&clusti_biclusters),
-            ground_truth.matching_score(&r)).unwrap();
+            ground_truth.matching_score(&bimax_results),
+            ground_truth.matching_score(&bibit_results)
+        ).unwrap();
 
         }
     }
@@ -133,10 +169,10 @@ fn run_solver(){
 
 
     for arg in program_args.iter() {
-        if arg.starts_with("--size-sensivity") {
-            args.size = arg.split_at(7).1.parse::<f64>().unwrap_or(args.size);
+        if arg.starts_with("--size-sensitivity") {
+            args.size = arg.split_at(19).1.parse::<f64>().unwrap_or(args.size);
         } else if arg.starts_with("--split-th") {
-            args.split = arg.split_at(8).1.parse::<f64>().unwrap_or(args.split);
+            args.split = arg.split_at(11).1.parse::<f64>().unwrap_or(args.split);
             println!("split {}", args.split);
         } else if arg.starts_with("--power") {
             args.power = arg.split_at(8).1.parse::<usize>().unwrap_or(args.power);
@@ -163,9 +199,9 @@ fn run_solver(){
         (wadj, n, m, labels_a, labels_b, node_map_a, node_map_b) => {
             print_wadj_stats(&wadj, n, m);
             let mut wadj2 = wadj.clone();
-            let biclusters = bicluster(&mut wadj2, args.size, args.split, args.power, args.verbose);
+            let (biclusters, algo_stats) = bicluster(&mut wadj2, args.size, args.split, args.power, args.verbose);
             let results_path = file_path.to_string() + ".biclusters";
-            biclusters.print_stats(args.size, args.split, args.power, &labels_a, &labels_b, Some(&results_path));
+            biclusters.print_stats(args.size, args.split, args.power, &labels_a, &labels_b, Some(&results_path), algo_stats);
 
 
             
@@ -185,9 +221,9 @@ fn run_solver(){
 fn main() {
 
     
-    gen_batch(3);
+    // gen_batch(3);
     
-    // run_solver();
+    run_solver();
     // run_comparison();
     
 

@@ -274,8 +274,17 @@ fn compute_unclustered_a(n: usize, a_clusters: &Vec<Vec<usize>>) -> Vec<usize> {
 }
 
 
+pub struct AlgoStats {
+    pub adjusted_error: f64,
+    pub nb_operations: f64,
+    pub nb_splits: f64,
+    pub nb_deletions: f64,
+    pub nb_additions: f64
+}
 
-pub fn bicluster( wadj: &mut WeightedBiAdjacency, cost_coef: f64, split_threshold: f64, markov_power: usize, verbose: usize) -> Biclust {
+
+
+pub fn bicluster( wadj: &mut WeightedBiAdjacency, cost_coef: f64, split_threshold: f64, markov_power: usize, verbose: usize) -> (Biclust, AlgoStats) {
 
     let min_error = wadj.compute_min_error();
 
@@ -413,29 +422,21 @@ pub fn bicluster( wadj: &mut WeightedBiAdjacency, cost_coef: f64, split_threshol
     let eta = (nb_additions + nb_deletions ) / ((n *m) as f64);
     let eta = eta-min_error;
     
-    // Print results
-    println!("");
-    println!("# Hyperparameters");
-    println!("- cost coef: {cost_coef}");
-    println!("- split threshold: {split_threshold}");
-    println!("- markov power: {markov_power}");
-    println!("
-# Results
-- Adjusted Error: {eta:.6}
-- Nb isolated A vertices: {}
-- Nb isolated B vertices: {}
-- Nb operations: {nb_operations:.3}
-- Nb splits: {nb_splits}
-- Nb deletions: {nb_deletions:.3}
-- Nb additions: {nb_additions:.3}
-", unclustered_a.len(), isolated_b_vertices.len());
+
+    let bicluster_stats  = AlgoStats {
+        adjusted_error: eta,
+        nb_operations: nb_operations,
+        nb_splits: nb_splits,
+        nb_additions: nb_additions,
+        nb_deletions: nb_deletions
+    };
 
     // Check integrity
     check_integrity(&a_clusters, &b_clusters, n, m);
 
     
     // compute_clusters(&a_clusters, &b_clusters, n, m)
-    Biclust::from_separate_biclusters(n,m, &a_clusters, &b_clusters)
+    (Biclust::from_separate_biclusters(n,m, &a_clusters, &b_clusters), bicluster_stats)
 
 }      
 
@@ -566,7 +567,7 @@ fn check_integrity(a_clusters: &Vec<Vec<usize>>, b_clusters: &Vec<Vec<usize>>, n
     }
     for b in 0..m {
         if b_hit[b] != 1 {
-            println!("ERROR: b is hit {} times", b_hit[b]);
+            println!("ERROR: B vertex {b} is hit {} times", b_hit[b]);
             return false;
         }
     }
@@ -580,7 +581,7 @@ fn check_integrity(a_clusters: &Vec<Vec<usize>>, b_clusters: &Vec<Vec<usize>>, n
     }
     for a in 0..n {
         if a_hit[a] == 0 {
-            println!("ERROR: a is not hit");
+            println!("ERROR: A vertex: {a} is not hit");
             return false;
         }
     }

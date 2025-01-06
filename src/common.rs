@@ -29,7 +29,7 @@ pub fn progress_bar(current: usize, total: usize, start_instant: Instant) {
     let elapsed_time = start_instant.elapsed();
     
     let percentage = (current as f64) / (total as f64);
-    let bar_length = 100;
+    let bar_length = 50;
     
     let bar = format!(
         "\r[{:>bar_length$}] {}% ({}/{}) | Elapsed: {:>8} | ETA: {:>8}",

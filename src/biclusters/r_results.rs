@@ -45,11 +45,22 @@ pub fn load_r_biclusters(
                 }
             } else {
                 // Cols
+
                 let values: Vec<&str> = line.split(" ").collect();
                 for  x in values {
-                    let &nx = node_map_b.get(x).unwrap();
-                    clustered_cols[nx] = true;
-                    bicluster.push(n+ nx);
+                    
+
+                    if let Some(&nx) = node_map_b.get(x) {
+                        clustered_cols[nx] = true;
+                        bicluster.push(n+ nx);
+                    } else {
+                        println!("col {line}");
+
+                        println!("{x}");
+                        println!("{:?}", node_map_b);
+                        panic!("aha");
+                    }
+                    
                 }
                 biclusters.add_bicluster(bicluster.clone());
             }

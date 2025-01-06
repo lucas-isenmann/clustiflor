@@ -1,9 +1,20 @@
 use std::collections::HashMap;
 use std::{collections::HashSet, fs::File};
 use std::io::{BufRead, BufReader, Write};
+use super::algo::AlgoStats;
 use super::biclustering::Biclustering;
 
 #[derive(Clone)]
+/// Rows are indiced from 0 to (n-1).
+/// Cols are indiced from 0 to (m-1).
+/// 
+/// Examples:
+/// ```
+/// rows_memberships[0] = [0,4,5] // means that row0 is in bicluster 0 4 and 5
+/// cols_memberships[0] = [1,4,5] // means that col0 is in bicluster 1 4 and 5
+/// biclusters[4] = [0, n+0]
+/// ```
+/// 
 pub struct Biclust {
     n: usize,
     m: usize,
@@ -331,6 +342,52 @@ impl Biclust {
         result / (self.n as f64)
     }
     
+    /// Compute the number of A vertex (or rows) which has no bicluster containing it and a B vertex (or a col)
+    /// It is possible that a vertex is isolated because it is not in any bicluster
+    /// It is possible that a vertex is isolated while it is in a bicluster containing other A vertices (or rows) 
+    pub fn nb_isolated_a(&self) -> usize {
+        let mut c = 0;
+        for row in 0..self.n {
+            let mut is_isolated = true;
+            for i in self.rows_memberships[row].iter() {
+                for b in 0..self.m {
+                    if self.cols_memberships[b].contains(&i) {
+                        is_isolated = false;
+                        break;
+                    }
+                }
+                if is_isolated == false {
+                    break;
+                }
+            }
+            if is_isolated == true {
+                c += 1;
+            }
+        }
+        c
+    }
+
+    pub fn nb_isolated_b(&self) -> usize {
+        let mut c = 0;
+        for col in 0..self.m {
+            let mut is_isolated = true;
+            for i in self.cols_memberships[col].iter() {
+                for a in 0..self.n {
+                    if self.rows_memberships[a].contains(&i) {
+                        is_isolated = false;
+                        break;
+                    }
+                }
+                if is_isolated == false {
+                    break;
+                }
+            }
+            if is_isolated == true {
+                c += 1;
+            }
+        }
+        c
+    }
 
     pub fn print_stats(&self,
         size_sensivity: f64, 
@@ -338,7 +395,8 @@ impl Biclust {
         markov_power: usize,
         labels_a: &Vec<String>, 
         labels_b: &Vec<String>, 
-        file_path: Option<&str>) {
+        file_path: Option<&str>,
+        algo_stats: AlgoStats) {
         
         
 
@@ -348,22 +406,24 @@ impl Biclust {
         };
 
         let mut file = File::create(&file_name).expect("Failed to open file");
+
+        writeln!(file, "# Bipartite graphs statistics").unwrap();
+        writeln!(file, "- Size of A (nb rows): {}", self.n).unwrap();
+        writeln!(file, "- Size of B (nb cols): {}", self.m).unwrap();
         
-        writeln!(file, "# Hyperparameters").unwrap();
+        writeln!(file, "\n# Hyperparameters").unwrap();
         writeln!(file, "- size sensivity: {size_sensivity}").unwrap();
         writeln!(file, "- split threshold: {split_threshold}").unwrap();
         writeln!(file, "- markov power: {markov_power}").unwrap();
         
         writeln!(file, "\n# Results").unwrap();
-
-        
-    // - Error: {eta:.6}
-    // - Nb isolated A vertices: {}
-    // - Nb isolated B vertices: {}
-    // - Nb operations: {nb_operations}
-    // - Nb splits: {nb_splits}
-    // - Nb deletions: {nb_deletions}
-    // - Nb additions: {nb_additions}
+        writeln!(file, "- Adjusted erros: {:.3}", algo_stats.adjusted_error).unwrap();
+        writeln!(file, "- Nb isolated A vertices (rows): {}", self.nb_isolated_a()).unwrap();
+        writeln!(file, "- Nb isolated B vertices (cols): {}", self.nb_isolated_b()).unwrap();
+        writeln!(file, "- Nb operations: {:.3}", algo_stats.nb_operations).unwrap();
+        writeln!(file, "- Nb splits: {}", algo_stats.nb_splits).unwrap();
+        writeln!(file, "- Nb additions: {:.3}", algo_stats.nb_additions).unwrap();
+        writeln!(file, "- Nb deletions: {:.3}", algo_stats.nb_deletions).unwrap();
 
         writeln!(file, "- Number of biclusters: {}", self.biclusters.len()).unwrap();
         writeln!(file, "- A Overlapping: {:.3}", self.get_rows_overlapping()).unwrap();
