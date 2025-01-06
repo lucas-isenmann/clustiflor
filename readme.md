@@ -1,6 +1,6 @@
 # Clustiflor
 
-Clustering and biclustering algorithm with overlaps.
+Clustering of graphs and biclustering of bipartite graphs algorithms with overlaps.
 
 
 
