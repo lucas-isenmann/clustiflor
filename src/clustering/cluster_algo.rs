@@ -23,6 +23,9 @@ pub fn load_adj_list_file(file_name: &str, delimiter: char) -> (Array2<f64>, Has
     // Read nodes and edges
     for line in lines {
         if let Ok(line) = line {
+            if line.starts_with("#"){
+                continue;
+            }
             let values: Vec<&str> = line.split(delimiter).collect();
             let v = String::from(values[0]);
             if !node_map.contains_key(&v) {
@@ -380,8 +383,8 @@ fn clusters_size_stats(clusters: &Vec<Vec<usize>>) {
     println!("Clusters size distribution");
     println!("- Average size: {:.2}", average_length);
     println!("- Max size: {}", sorted_vectors[0].len());
-    println!("- Second max size: {}", sorted_vectors[1].len());
-    println!("- Third max size: {}", sorted_vectors[2].len());
+    // println!("- Second max size: {}", sorted_vectors[1].len());
+    // println!("- Third max size: {}", sorted_vectors[2].len());
     println!("- Min size: {}", sorted_vectors[sorted_vectors.len()-1].len());
 }
 
@@ -405,7 +408,7 @@ fn clusters_size_stats(clusters: &Vec<Vec<usize>>) {
 ///
 /// ```
 
-pub fn cluster_graph(mut matrix: Array2<f64>, verbose: bool, dist: usize, nb_vertices: usize, split_threshold: f64) -> Vec<Vec<usize>> {
+pub fn cluster_graph(mut matrix: Array2<f64>, verbose: bool, dist: usize, samples_size: usize, split_threshold: f64) -> Vec<Vec<usize>> {
 
     let n = matrix.shape()[0];
     // println!("n = {n} {}", original_vertices.len());
@@ -488,7 +491,7 @@ pub fn cluster_graph(mut matrix: Array2<f64>, verbose: bool, dist: usize, nb_ver
 
 
         // Samples
-        let sample = choose_unique_random_numbers(n , nb_vertices-1, &assigned);
+        let sample = choose_unique_random_numbers(n , samples_size-1, &assigned);
 
         for v in sample {
             let start = Instant::now();
@@ -622,7 +625,7 @@ pub fn cluster_graph(mut matrix: Array2<f64>, verbose: bool, dist: usize, nb_ver
     println!("# Parameters");
     println!("Split threshold: {split_threshold}");
     println!("Markov power: {}", 4);
-    println!("Nb vertices: {nb_vertices}");
+    println!("Samples size: {samples_size}");
     println!("Cluster size coef: {}", 1);
 
     println!("# Results");
