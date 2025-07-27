@@ -6,6 +6,32 @@ Clustering of graphs and biclustering of bipartite graphs algorithms with overla
 
 ## Usage
 
+
+## Clustering
+
+Edge data files should be in the following format:
+
+    1 10
+    1 34
+    # Lines starting with a # are ignored
+    2 11
+    2 12
+    a 12 # Labels can be string
+    0 12 # Labels can start at 0
+
+Hyperparameters:
+
+    --split-threshold=1 (float >= 1., default value: 1)
+    --samples-size=10 (integer, default value: 10)
+
+
+Launch
+
+    cargo run --release data.txt
+    cargo run --release data.txt --split-threshold=2
+
+
+
 ## Asymetrical Biclustering
 
 Data files should be in the following format:
