@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::{collections::HashSet, fs::File};
 use std::io::{BufRead, BufReader, Write};
 use super::algo::AlgoStats;
@@ -387,6 +388,51 @@ impl Biclust {
             }
         }
         c
+    }
+
+    pub fn print_biclusters(&self,
+        file_path: Option<&str>) {
+        
+        
+
+        let file_name = match file_path {
+            Some(path) => path.to_string(),
+            None => "biclusters.txt".to_string(),
+        };
+
+        let mut file = File::create(&file_name).expect("Failed to open file");
+
+        writeln!(file, "Biclusters").unwrap();
+
+        for bicluster in self.biclusters.iter() {
+            let mut rows = vec![];
+            let mut cols = vec![];
+            
+            for &x in bicluster {
+                if x < self.n {
+                    rows.push(x);
+                } else {
+                    cols.push(x);
+                }
+            }
+
+            writeln!(file, "{} {}", rows.len(), cols.len()  ).unwrap();
+
+            rows.sort();
+            for x in rows.iter() {
+                write!(file, "{} ", x).unwrap();
+            }
+            writeln!(file, "").unwrap();
+
+            cols.sort();
+            for col in cols.iter() {
+                write!(file, "{} ", col).unwrap();
+            }
+            writeln!(file, "").unwrap();
+
+
+        }
+
     }
 
     pub fn print_stats(&self,

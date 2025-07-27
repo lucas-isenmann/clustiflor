@@ -9,3 +9,4 @@ crate-type = ["cdylib"]
 [dependencies]
 rand = "0.8"
 ndarray = "0.16.1"
+walkdir = "2"

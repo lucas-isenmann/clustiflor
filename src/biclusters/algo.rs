@@ -11,34 +11,11 @@ use std::io::{BufRead, BufReader};
 use crate::biclusters::biclust::Biclust;
 use crate::common::{print_matrix, progress_bar};
 
+use super::common::transition_matrix_b;
 use super::weighted_biadj::WeightedBiAdjacency;
 
 
 
-/// Return the transition matrix between B vertices
-/// 
-fn transition_matrix_b(wadj: &WeightedBiAdjacency, n: usize, m: usize) -> Array2<f64> {
-    let mut tm = Array2::zeros((m,m));
-
-    let d = compute_degrees(wadj, n, m);
-
-    // Compute tm[i][j] = probability i -> j
-    // tm[i][j] = (sum wxi wxj) / (d[i] d[j])
-    for i in 0..m{
-        for j in 0..m {
-            for (x,wxi) in wadj.iter(i) {
-                for (y, w) in wadj.iter(j){
-                    if x == y {
-                        tm[[i,j]] += (wxi*w)/(d[i]*d[x+m]);
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    tm
-
-}
 
 
 /// The center vertex is supposed to be at index 0 in neighbors (so it is the closed neighborhood)
@@ -238,20 +215,6 @@ fn best(n:usize, m: usize, order: Vec<(usize, f64)>, wadj: &WeightedBiAdjacency,
 
 
 
-fn compute_degrees(wadj: &WeightedBiAdjacency, n: usize, m: usize) -> Vec<f64> {
-    let mut degrees = vec![0.; n+m];
-    for b in 0..m {
-        for (_,w) in wadj.iter(b) {
-            degrees[b] += w;
-        }
-    }
-    for a in 0..n {
-        for (_,w) in wadj.iter(a+m) {
-            degrees[a+m] += w;
-        }
-    }
-    degrees
-}
 
 
 
@@ -671,6 +634,63 @@ pub fn load_wadj_from_csv(file_path: &str, del: &str, split_rows: bool) -> (Weig
     (wadj, n, m, labels_a, labels_b, node_map_a, node_map_b)
 }
 
+
+/// 
+/// 
+pub fn load_wadj_from_matrix(file_path: &str) -> WeightedBiAdjacency {
+    let file = File::open(file_path).expect("Failed to open file");
+    let reader = BufReader::new(file);
+
+    let mut n = 0;
+    let mut m = 0;
+    let mut edges: Vec<(usize, usize, f64)> = vec![];
+    let mut biclusters: Vec<Vec<usize>> = vec![];
+
+    for line in reader.lines() {
+        if let Ok(line) = line {
+
+             // Skip empty lines and comments
+             if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            
+            // Parse bicluster definition
+            if line.starts_with("BC") {
+                let members_str = &line[3..];
+                if members_str.len() == 0{
+                    continue;
+                }
+                let members: Vec<usize> = members_str
+                    .split(',')
+                    .map(|x| x.parse().expect("Invalid bicluster member"))
+                    .collect();
+                biclusters.push(members);
+                continue;
+            }
+
+            let values: Vec<&str> = line.split(" ").collect();
+            m = values.len();
+
+            for j in 0..m {
+                let weight: f64 = values[j].parse().unwrap();
+                if weight != 0. {
+                    edges.push((n, j, weight));
+                }
+            }
+            n += 1;
+
+        }
+    }
+
+    let mut wadj = WeightedBiAdjacency::new(n, m);
+    for &(a,b,w) in edges.iter() {
+        wadj.add_edge(a, b, w);
+    }
+
+    wadj.set_ground_biclusters(Biclust::from_biclusters(n, m, &biclusters));
+
+    wadj
+}
 
 
 

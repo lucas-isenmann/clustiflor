@@ -51,6 +51,11 @@ impl WeightedBiAdjacency {
     }
 
 
+    pub fn set_ground_biclusters(&mut self, biclusters: Biclust){
+        self.ground_truth = Some(biclusters);
+    }
+
+
     pub fn write_to_file(&self, filename: &str, header: &str)  {
         let mut file = File::create(filename).unwrap();
 
@@ -83,6 +88,28 @@ impl WeightedBiAdjacency {
 
     pub fn col_degree(&self, b: usize) -> usize {
         self.wadj[b].len()
+    }
+
+    pub fn row_degree(&self, a: usize) -> usize {
+        self.wadj[a+self.m].len()
+    }
+
+    pub fn row_degrees_distributon(&self) -> Vec<usize> {
+        let mut distrib = Vec::new();
+        for a in 0..self.n {
+            distrib.push(self.wadj[a+self.m].len());
+        }
+        distrib.sort();
+        distrib
+    }
+
+    pub fn col_degrees_distributon(&self) -> Vec<usize> {
+        let mut distrib = Vec::new();
+        for b in 0..self.m {
+            distrib.push(self.col_degree(b));
+        }
+        distrib.sort();
+        distrib
     }
 
     pub fn has_edgee(&self, a: usize, b: usize) -> bool {
@@ -156,6 +183,70 @@ impl WeightedBiAdjacency {
         }
 
         // For each b vertex, choose a random bicluster among the k biclusters
+        for b in 0..m {
+            shuffle(&mut biclusters_indices);
+            for &a in biclusters[biclusters_indices[0]].iter() {
+                if a < n {
+                    wadj.add_edge(a, b, 1.);
+                }
+            }
+            biclusters[biclusters_indices[0]].push(b+n);
+        }
+
+
+        
+        let mut gt = Biclust::from_biclusters(n, m, &biclusters);
+        gt.reduce_isolated();
+        wadj.ground_truth = Some(gt);
+
+
+        // Noise
+        for i in 0..n  {
+            for j in 0..m {
+                if rng.gen_range(0.0..1.0) < noise {
+                    wadj.toggle(i, j);
+                }
+            }
+        }
+
+        wadj
+    }
+
+
+    /// Generator v2
+    /// - n: number of rows (size of A)
+    /// - m: number of columns (size of B)
+    /// - c: in [1,m] number of biclusters
+    /// - over: in [0,1]
+    /// - noise: in [0,1] average number of fliped edges
+    pub fn rand_v2(n: usize, m: usize, c: usize, over: f64, noise: f64 ) -> Self{
+        let mut wadj = WeightedBiAdjacency::new(n,m);
+        let mut rng = rand::thread_rng();
+
+        // For each A vertex, generate the number of biclusters which will contains it
+        // = 1 + Bin(c-1, over)
+        let mut nb_biclusters = vec![0;n];
+        for a in 0..n {
+            let c = 1+ generate_binomial(over, c-1);
+            nb_biclusters[a] = c;
+        }
+
+
+        let mut biclusters_indices = vec![0;c];
+        for i in 0..c {
+            biclusters_indices[i] = i;
+        }
+        let mut biclusters = vec![vec![]; c];
+        // For each A vertex, choose nb_biclusters[a] among the k biclusters
+        for a in 0..n {
+            shuffle(&mut biclusters_indices);
+            for j in 0..nb_biclusters[a] {
+                biclusters[biclusters_indices[j]].push(a);
+            }
+        }
+
+
+        // For each vertex `b` of B, choose a random bicluster among the k biclusters
         for b in 0..m {
             shuffle(&mut biclusters_indices);
             for &a in biclusters[biclusters_indices[0]].iter() {

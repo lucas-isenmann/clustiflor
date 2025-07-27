@@ -1,19 +1,25 @@
 pub mod biclusters;
 pub mod common;
 
+use std::fmt;
+use std::path::Path;
 use std::time::{Duration, Instant};
 use std::{env, fs::File, process::Command};
 use std::io::{BufRead, BufReader, Write};
 
+use biclusters::algo::load_wadj_from_matrix;
+use biclusters::algo_two_sided::{analyze_ground_biclusters, bicluster_two_sided};
 use biclusters::{algo::{bicluster, load_wadj_from_csv, print_wadj_stats}, biclust::Biclust, biclustering::Biclustering, weighted_biadj::WeightedBiAdjacency, r_results::load_r_biclusters};
 use rand::Rng;
+use walkdir::WalkDir;
 
 struct Args {
     size: f64,
     split: f64,
     power: usize,
     split_rows: bool,
-    verbose: usize
+    verbose: usize,
+    matrix: bool
 }
 
 impl Default for Args {
@@ -23,10 +29,57 @@ impl Default for Args {
             split: 1.0,
             power: 3,
             split_rows: true,
-            verbose: 0
+            verbose: 0,
+            matrix: false
         }
     }
 }
+
+fn gen_batch_v2(batch_size: usize){
+    let base_name = "bigraphs/synth/batch2";
+    for i in 0..batch_size {
+
+        let mut rng = rand::thread_rng();
+
+        let n = rng.gen_range(10..=400);
+        let m = rng.gen_range(10..=400);
+        let c = rng.gen_range(1..(m/2));
+        let over = rng.gen_range(0.0..0.3);
+        let noise = rng.gen_range(0.0..=0.001);
+
+        println!("n {n} m {m} c {c} over {over} noise {noise}");
+
+
+
+        let wadj = WeightedBiAdjacency::rand_v2(n,m, c, over, noise);
+
+        let row_degrees_distrib = wadj.row_degrees_distributon();
+        let col_degrees_distrib = wadj.col_degrees_distributon();
+
+        println!("{:?}", row_degrees_distrib);
+        println!("{:?}", col_degrees_distrib);
+        // wadj.print_matrix();
+        
+        if let Some(gt) = wadj.get_ground_truth(){
+            gt.print();
+        }
+
+
+        // let (biclusters, stats) = bicluster(&mut wadj.clone(), 1.0, 1.0, 3, 0);
+
+
+        wadj.write_to_file(&format!("{base_name}/{i}.edges"), &format!("# n={n} m={m} c={c} over={over:.3} noise={noise:.3}") );
+
+        let ground_truth = wadj.get_ground_truth();
+        let (labels_a, labels_b, nodes_a_map, nodes_b_map) = wadj.get_labels();
+
+        if let Some(ground_truth) = ground_truth {
+            ground_truth.write_to_file( &format!("{base_name}/{i}.ground_truth"), Some((labels_a, labels_b)));
+        }
+    }
+}
+
+
 
 fn gen_batch(batch_size: usize){
     let base_name = "bigraphs/synth/batch";
@@ -180,6 +233,8 @@ fn run_solver(){
             args.verbose = arg.split_at(10).1.parse::<usize>().unwrap_or(args.verbose);
         } else if arg.starts_with("--split-cols") {
             args.split_rows = false;
+        } else if arg.starts_with("--matrix") {
+            args.matrix = true;
         }
     }
 
@@ -195,35 +250,195 @@ fn run_solver(){
     println!("File path: {}", file_path);
     println!("Delimiter: {}", delimiter);
 
-    match load_wadj_from_csv(file_path, delimiter, args.split_rows) {
-        (wadj, n, m, labels_a, labels_b, node_map_a, node_map_b) => {
-            print_wadj_stats(&wadj, n, m);
-            let mut wadj2 = wadj.clone();
-            let (biclusters, algo_stats) = bicluster(&mut wadj2, args.size, args.split, args.power, args.verbose);
-            let results_path = file_path.to_string() + ".biclusters";
-            biclusters.print_stats(args.size, args.split, args.power, &labels_a, &labels_b, Some(&results_path), algo_stats);
+    if args.matrix {
+        let wadj =  load_wadj_from_matrix(file_path);
+        print_wadj_stats(&wadj, wadj.get_n(), wadj.get_m());
+        let mut wadj2 = wadj.clone();
+        let (biclusters, algo_stats) = bicluster(&mut wadj2, args.size, args.split, args.power, args.verbose);
+        let results_path = file_path.to_string() + ".biclusters";
+        let mut labels_a = vec![];
+        let mut labels_b = vec![];
+        for line in 0..wadj.get_n() {
+            labels_a.push(line.to_string())
+        } 
+        for j in 0..wadj.get_m() {
+            labels_b.push(format!("c{j}"));
+        }
+        biclusters.print_stats(args.size, args.split, args.power, &labels_a, &labels_b, Some(&results_path), algo_stats);
 
 
-            
-            // let r = load_r_biclusters( "results.txt", &node_map_a, &node_map_b);
-            // for biclust in r.iter() {
-            //     println!("{biclust:?}");
-            // }
-
-            // println!("{:?} {}", compute_nb_unclustered(&r, n, m), compute_edition_diff(&r, &wadj, n, m));
-
-            
+    } else {
+        match load_wadj_from_csv(file_path, delimiter, args.split_rows) {
+            (wadj, n, m, labels_a, labels_b, node_map_a, node_map_b) => {
+                print_wadj_stats(&wadj, n, m);
+                let mut wadj2 = wadj.clone();
+                let (biclusters, algo_stats) = bicluster(&mut wadj2, args.size, args.split, args.power, args.verbose);
+                let results_path = file_path.to_string() + ".biclusters";
+                biclusters.print_stats(args.size, args.split, args.power, &labels_a, &labels_b, Some(&results_path), algo_stats);
+    
+    
+                
+                // let r = load_r_biclusters( "results.txt", &node_map_a, &node_map_b);
+                // for biclust in r.iter() {
+                //     println!("{biclust:?}");
+                // }
+    
+                // println!("{:?} {}", compute_nb_unclustered(&r, n, m), compute_edition_diff(&r, &wadj, n, m));
+    
+                
+            }
         }
     }
 
+    
+
+}
+
+
+
+
+
+fn run_bicluster_solver(){
+
+    let program_args: Vec<String> = env::args().collect();
+
+    let mut args = Args::default();
+
+
+    for arg in program_args.iter() {
+        if arg.starts_with("--size-sensitivity") {
+            args.size = arg.split_at(19).1.parse::<f64>().unwrap_or(args.size);
+        } else if arg.starts_with("--split-th") {
+            args.split = arg.split_at(11).1.parse::<f64>().unwrap_or(args.split);
+            println!("split {}", args.split);
+        } else if arg.starts_with("--power") {
+            args.power = arg.split_at(8).1.parse::<usize>().unwrap_or(args.power);
+        } else if arg.starts_with("--verbose") {
+            args.verbose = arg.split_at(10).1.parse::<usize>().unwrap_or(args.verbose);
+        }
+    }
+
+
+    if program_args.len() < 2 {
+        eprintln!("Usage: {} <data_path> --split-th=<number >= 1.>", program_args[0]);
+        std::process::exit(1);
+    }
+
+    let data_path = &program_args[1];
+
+    println!("Data path: {}", data_path);
+
+
+    // Check if path exists
+    let path = Path::new(data_path);
+    if !path.exists() {
+        eprintln!("Error: Path '{}' does not exist", data_path);
+        std::process::exit(1);
+    }
+    
+    // Handle directory case
+    if path.is_dir() {
+        process_directory(data_path, &args);
+    } else {
+        // Handle single file case
+        process_single_file(data_path, &args);
+    }
+
+
+    // let wadj =  load_wadj_from_matrix(data_path);
+    // print_wadj_stats(&wadj, wadj.get_n(), wadj.get_m());
+    // let mut wadj2 = wadj.clone();
+    // let (biclusters, algo_stats) = bicluster_two_sided(&mut wadj2, args.size, args.split, args.power, args.verbose);
+    
+
+    // biclusters.print_biclusters( Some(&(data_path.to_string() + ".BiMarkov.results")));
+
+
+    
+
+}
+
+
+
+fn process_directory(dir_path: &str, args: &Args) {
+    println!("Processing directory: {}", dir_path);
+    
+    for entry in WalkDir::new(dir_path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|entry| {
+            entry.file_type().is_file() &&
+            entry.path().extension().map_or(false, |ext| ext == "data")
+        }) {
+            
+        let file_path = entry.path();
+        println!("Processing file: {:?}", file_path);
+        
+        let wadj = load_wadj_from_matrix(file_path.to_str().unwrap());
+        print_wadj_stats(&wadj, wadj.get_n(), wadj.get_m());
+        
+        if let Some(bc) =wadj.get_ground_truth(){
+            println!("{:?}", bc.biclusters());
+        }
+        
+        let mut wadj2 = wadj.clone();
+        let (biclusters, algo_stats) = bicluster_two_sided(
+            &mut wadj2, 
+            1., 
+            1., 
+            args.power, 
+            args.verbose
+        );
+
+        if let Some(ground_biclusters) = wadj.get_ground_truth(){
+            let ms = ground_biclusters.matching_score(&biclusters);
+            let ms2 = biclusters.matching_score(&ground_biclusters);
+            println!("matching score: {ms:.3} {ms2:.3} {:.3}", (ms*ms2).sqrt()  );
+        }
+        
+        let result_path = format!("{}.BiMarkov.results", file_path.display());
+        biclusters.print_biclusters(Some(&result_path));
+    }
+}
+
+fn process_single_file(file_path: &str, args: &Args) {
+    println!("Processing single file: {}", file_path);
+    
+    let wadj = load_wadj_from_matrix(file_path);
+    print_wadj_stats(&wadj, wadj.get_n(), wadj.get_m());
+
+    if let Some(bc) =wadj.get_ground_truth(){
+        println!("{:?}", bc.biclusters());
+    }
+    
+    let mut wadj2 = wadj.clone();
+    let (biclusters, algo_stats) = bicluster_two_sided(
+        &mut wadj2, 
+        1.0, 
+        args.split, 
+        args.power, 
+        args.verbose
+    );
+
+    if let Some(ground_biclusters) = wadj.get_ground_truth(){
+        let ms = ground_biclusters.matching_score(&biclusters);
+        let ms2 = biclusters.matching_score(&ground_biclusters);
+        println!("matching score: {ms:.3} {ms2:.3} {:.3}", (ms*ms2).sqrt()  );
+    }
+
+    analyze_ground_biclusters(&wadj);
+    
+    biclusters.print_biclusters(Some(&(file_path.to_string() + ".BiMarkov3.results")));
 }
 
 fn main() {
 
+
+    run_bicluster_solver();
     
-    // gen_batch(3);
+    // gen_batch_v2(1);
     
-    run_solver();
+    // run_solver();
     // run_comparison();
     
 
