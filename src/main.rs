@@ -12,10 +12,11 @@ use biclusters::algo::load_wadj_from_matrix;
 use biclusters::algo_two_sided::{analyze_ground_biclusters, bicluster_two_sided};
 use biclusters::{algo::{bicluster, load_wadj_from_csv, print_wadj_stats}, biclustering::Biclustering, weighted_biadj::WeightedBiAdjacency, r_results::load_r_biclusters};
 use cluster_algo::load_adj_list_file;
+use cluster_algo::load_edges_file;
 use rand::Rng;
 use walkdir::WalkDir;
 
-use crate::clustering::cluster_algo::{self, cluster_graph, load_edges_file};
+use crate::clustering::cluster_algo::{self, cluster_graph};
 
 struct Args {
     size: f64,
@@ -451,6 +452,7 @@ fn run_cluster_solver() {
     let mut verbose_level = 0;
     let data_path = &program_args[1];
     let mut samples_size = 10;
+    let mut ignore_weights = false;
 
     println!("Data path: {}", data_path);
 
@@ -464,13 +466,16 @@ fn run_cluster_solver() {
         if arg.starts_with("--samples-size=") {
             samples_size = arg.split_at(15).1.parse::<usize>().unwrap_or(samples_size);
         }
+
+        if arg.starts_with("--ignore-weights") {
+            ignore_weights = true;
+        }
     }
 
 
 
     
-
-    let (matrix, node_indices) = load_adj_list_file(&data_path, ' ');
+    let (matrix, node_indices) = load_edges_file(&data_path, ' ', ignore_weights);
 
 
     // Compute the reverse node map

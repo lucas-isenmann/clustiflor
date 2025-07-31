@@ -14,15 +14,18 @@ Edge data files should be in the following format:
     1 10
     1 34
     # Lines starting with a # are ignored
-    2 11
     2 12
     a 12 # Labels can be string
     0 12 # Labels can start at 0
+    a b 0.5 # third value will be weight
+    # by default weight is 1
+    # use --ignore-weights to ignore weights
 
 Hyperparameters:
 
     --split-threshold=1 (float >= 1., default value: 1)
     --samples-size=10 (integer, default value: 10)
+    --ignore-weights to ignore weights when loading a file
 
 
 Launch

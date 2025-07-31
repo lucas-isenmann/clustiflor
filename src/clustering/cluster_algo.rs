@@ -62,20 +62,30 @@ pub fn load_adj_list_file(file_name: &str, delimiter: char) -> (Array2<f64>, Has
 
 
 
-
-pub fn load_edges_file(file_name: &str, delimiter: char) -> Array2<f64> {
+///
+/// format
+/// ```txt
+/// # comments
+/// 0 1
+/// 1 2
+/// 2 0
+/// ```
+pub fn load_edges_file(file_name: &str, delimiter: char, ignore_weights: bool) -> (Array2<f64>, HashMap<String, usize>) {
     let reader = BufReader::new(File::open(file_name).expect("Failed to open file"));
     let lines = reader.lines();
 
-    let mut data: Vec<(usize, usize)> = Vec::new();
+    let mut data: Vec<(usize, usize, f64)> = Vec::new();
     let mut node_map = std::collections::HashMap::<String, usize>::new();
     let mut n = 0;
 
     // Read nodes and edges
     for line in lines {
         if let Ok(line) = line {
+            if line.starts_with("#"){
+                continue;
+            }
             let values: Vec<&str> = line.split(delimiter).collect();
-            if values.len() == 2 {
+            if values.len() >= 2 {
                 let node1 = String::from(values[0]);
                 let node2 = String::from(values[1]);
 
@@ -91,7 +101,13 @@ pub fn load_edges_file(file_name: &str, delimiter: char) -> Array2<f64> {
 
                 let n1 = node_map.get(&node1).unwrap();
                 let n2 = node_map.get(&node2).unwrap();
-                data.push((*n1, *n2))
+
+                let mut weight = 1.;
+                if values.len() >= 3 && ignore_weights == false{
+                    weight = values[2].parse().unwrap();
+                }
+                data.push((*n1, *n2, weight));
+                // println!("{:?} {ignore_weights}", data.last());
             }
         }
     }
@@ -99,12 +115,12 @@ pub fn load_edges_file(file_name: &str, delimiter: char) -> Array2<f64> {
     // Create adjacency matrix
     let mut adj_matrix = Array2::zeros((n, n));
 
-    for (u,v) in data {
-        adj_matrix[[u,v]] = 1.;
-        adj_matrix[[v,u]] = 1.;
+    for (u,v, weight) in data {
+        adj_matrix[[u,v]] = weight;
+        adj_matrix[[v,u]] = weight;
     }
 
-    adj_matrix
+    (adj_matrix, node_map)
 }
 
 
@@ -426,10 +442,10 @@ pub fn cluster_graph(mut matrix: Array2<f64>, verbose: bool, dist: usize, sample
         let mut best_cost = std::f64::INFINITY;
         let mut best_cluster = vec![];
 
-        let start = Instant::now();
+        // let start = Instant::now();
         let tm = compute_transition_matrix(&matrix, n);
-        let duration = Instant::now().duration_since(start);
-        println!("Transition matrix {:.6} seconds", duration.as_millis() as f64 / 1000.0);
+        // let duration = Instant::now().duration_since(start);
+        // println!("Transition matrix {:.6} seconds", duration.as_millis() as f64 / 1000.0);
 
 
         let mut mindeg = 100000;
@@ -457,30 +473,30 @@ pub fn cluster_graph(mut matrix: Array2<f64>, verbose: bool, dist: usize, sample
         }
 
         if let Some(minv) = minv {
-            println!("Center: {minv} degree: {mindeg}");
+            // println!("Center: {minv} degree: {mindeg}");
             // let x = compute_neighbors(&matrix, minv, 1);
 
             // println!("vertex: {minv} N[v]: {x:?} {}", x.len());
 
 
-            let start = Instant::now();
+            // let start = Instant::now();
             let x1 = compute_neighbors(&matrix, minv, dist);
-            let duration = Instant::now().duration_since(start);
-            println!("Compute neighbors {:.6} seconds", duration.as_millis() as f64 / 1000.0);
+            // let duration = Instant::now().duration_since(start);
+            // println!("Compute neighbors {:.6} seconds", duration.as_millis() as f64 / 1000.0);
 
-            println!("Try size: {}", x1.len());
+            // println!("Try size: {}", x1.len());
             // println!("vertex: {minv} N[v]: {x1:?} {}", x1.len());
 
-            let start = Instant::now();
+            // let start = Instant::now();
             let order1 = compute_order(&x1, minv, &tm);
-            let duration = Instant::now().duration_since(start);
-            println!("order {:.6} seconds", duration.as_millis() as f64 / 1000.0);
+            // let duration = Instant::now().duration_since(start);
+            // println!("order {:.6} seconds", duration.as_millis() as f64 / 1000.0);
 
             // println!("Order: {order1:?}");
-            let start = Instant::now();
+            // let start = Instant::now();
             let (cost1, cluster1) = best(&matrix, &order1, split_threshold);
-            let duration = Instant::now().duration_since(start);
-            println!("best {:.6} seconds", duration.as_millis() as f64 / 1000.0);
+            // let duration = Instant::now().duration_since(start);
+            // println!("best {:.6} seconds", duration.as_millis() as f64 / 1000.0);
 
             if cost1 < best_cost {
                 best_cost = cost1;
@@ -494,24 +510,24 @@ pub fn cluster_graph(mut matrix: Array2<f64>, verbose: bool, dist: usize, sample
         let sample = choose_unique_random_numbers(n , samples_size-1, &assigned);
 
         for v in sample {
-            let start = Instant::now();
+            // let start = Instant::now();
             let subset: Vec<usize> = compute_neighbors(&matrix, v, dist);
-            let duration = Instant::now().duration_since(start);
-            println!("Compute neighbors {:.6} seconds", duration.as_millis() as f64 / 1000.0);
+            // let duration = Instant::now().duration_since(start);
+            // println!("Compute neighbors {:.6} seconds", duration.as_millis() as f64 / 1000.0);
 
-            println!("Subset: {}", subset.len());
+            // println!("Subset: {}", subset.len());
             // println!("vertex: {minv} N[v]: {x1:?} {}", x1.len());
 
-            let start = Instant::now();
+            // let start = Instant::now();
             let order1: Vec<(usize, f64)> = compute_order(&subset, v, &tm);
-            let duration = Instant::now().duration_since(start);
-            println!("order {:.6} seconds", duration.as_millis() as f64 / 1000.0);
-
+            // let duration = Instant::now().duration_since(start);
+            // println!("order {:.6} seconds", duration.as_millis() as f64 / 1000.0);
+            
             // println!("Order: {order1:?}");
-            let start = Instant::now();
+            // let start = Instant::now();
             let (cost1, cluster1) = best(&matrix, &order1, split_threshold);
-            let duration = Instant::now().duration_since(start);
-            println!("best {:.6} seconds", duration.as_millis() as f64 / 1000.0);
+            // let duration = Instant::now().duration_since(start);
+            // println!("best {:.6} seconds", duration.as_millis() as f64 / 1000.0);
 
             if cost1 < best_cost {
                 best_cost = cost1;
@@ -620,20 +636,22 @@ pub fn cluster_graph(mut matrix: Array2<f64>, verbose: bool, dist: usize, sample
         }
     }
 
+    println!("Clustering ended successfully");
+
     let nb_deletions =c - split_threshold*(nb_splits as f64);
 
     println!("# Parameters");
-    println!("Split threshold: {split_threshold}");
-    println!("Markov power: {}", 4);
-    println!("Samples size: {samples_size}");
-    println!("Cluster size coef: {}", 1);
+    println!("- Split threshold: {split_threshold}");
+    println!("- Markov power: {}", 4);
+    println!("- Samples size: {samples_size}");
+    println!("- Cluster size coef: {}", 1);
 
     println!("# Results");
-    println!("Nb clusters: {}", clusters.len());
+    println!("- Nb clusters: {}", clusters.len());
     // println!("Nb_operations: {c}");
-    println!("Nb splits: {nb_splits}" );
-    println!("Nb deletions: {nb_deletions:.0}",  );
-    println!("Overlapping: {:.3}", 1.+(nb_splits as f64)/(n as f64));
+    println!("- Nb splits: {nb_splits}" );
+    println!("- Nb deletions: {nb_deletions:.0}",  );
+    println!("- Overlapping: {:.3}", 1.+(nb_splits as f64)/(n as f64));
 
     clusters_size_stats(&clusters);
 
