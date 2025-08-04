@@ -2,21 +2,18 @@ pub mod biclusters;
 pub mod common;
 pub mod clustering;
 
-use std::collections::HashMap;
 use std::path::Path;
 use std::time::{Instant};
 use std::{env, fs::File, process::Command};
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::io::{BufRead, BufReader, Write};
 
 use biclusters::algo::load_wadj_from_matrix;
 use biclusters::algo_two_sided::{analyze_ground_biclusters, bicluster_two_sided};
 use biclusters::{algo::{bicluster, load_wadj_from_csv, print_wadj_stats}, biclustering::Biclustering, weighted_biadj::WeightedBiAdjacency, r_results::load_r_biclusters};
-use cluster_algo::load_adj_list_file;
-use cluster_algo::load_edges_file;
 use rand::Rng;
 use walkdir::WalkDir;
 
-use crate::clustering::cluster_algo::{self, cluster_graph};
+use crate::clustering::cluster_algo::{run_cluster_solver};
 
 struct Args {
     size: f64,
@@ -439,79 +436,6 @@ fn process_single_file(file_path: &str, args: &Args) {
 
 
 
-fn run_cluster_solver() {
-
-    let program_args: Vec<String> = env::args().collect();
-
-    if program_args.len() < 2 {
-        eprintln!("Usage: {} <data_path>", program_args[0]);
-        std::process::exit(1);
-    }
-
-    let mut split_threshold = 1.;
-    let mut verbose_level = 0;
-    let data_path = &program_args[1];
-    let mut samples_size = 10;
-    let mut ignore_weights = false;
-
-    println!("Data path: {}", data_path);
-
-    for arg in program_args.iter() {
-        if arg.starts_with("--split-threshold=") {
-            split_threshold = arg.split_at(18).1.parse::<f64>().unwrap_or(split_threshold);
-        }
-        if arg.starts_with("--verbose=") {
-            verbose_level = arg.split_at(10).1.parse::<usize>().unwrap_or(verbose_level);
-        }
-        if arg.starts_with("--samples-size=") {
-            samples_size = arg.split_at(15).1.parse::<usize>().unwrap_or(samples_size);
-        }
-
-        if arg.starts_with("--ignore-weights") {
-            ignore_weights = true;
-        }
-    }
-
-
-
-    
-    let (matrix, node_indices) = load_edges_file(&data_path, ' ', ignore_weights);
-
-
-    // Compute the reverse node map
-    let mut node_labels = HashMap::new();
-    for (key, value) in node_indices.iter() {
-        node_labels.insert(*value, key.clone());
-    }
-
-    // Compute the number of edges
-    let n = matrix.shape()[0];
-    let mut m = 0;
-    for i in 0..n {
-        for j in i+1..n{
-            if matrix[[i,j]] > 0. {
-                m += 1;
-            }
-        }
-    }
-
-    println!("n={n} m={m}");
-    println!("Start clustering...");
-    let clusters = cluster_graph(matrix, true, 2, samples_size, split_threshold);
-
-
-    
-    let results_path = data_path.to_string() + ".clusters";
-    let output_file = File::create(results_path).expect("Failed to create file");
-    let mut writer = BufWriter::new(output_file);
-
-    for cluster in &clusters {
-        for v in cluster {
-            write!(writer, "{} ", node_labels.get(v).unwrap()).expect("Failed to write to file");
-        }
-        writeln!(writer).expect("Failed to write end-of-line to file");
-    }
-}
 
 
 
@@ -521,7 +445,7 @@ fn main() {
     run_cluster_solver();
     return;
 
-    run_bicluster_solver();
+    // run_bicluster_solver();
     
     // gen_batch_v2(1);
     

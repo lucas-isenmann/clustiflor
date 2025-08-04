@@ -1,7 +1,180 @@
-use std::io::{stdout, Write};
+use std::{ io::{stdout, Write}};
 
-use ndarray::Array2;
+use ndarray::{Array1, Array2};
 use std::time::{Duration, Instant};
+
+fn swap_columns(matrix: &mut Array2<f64>, col1: usize, col2: usize) {
+   for i in 0..matrix.nrows(){
+        let t = matrix[[i,col2]];
+        matrix[[i,col2]] = matrix[[i,col1]];
+        matrix[[i,col1]] = t;
+   }
+}
+
+fn swap_rows(matrix: &mut Array2<f64>, row1: usize, row2: usize) {
+   for j in 0..matrix.ncols(){
+        let t = matrix[[row1,j]];
+        matrix[[row1,j]] = matrix[[row2,j]];
+        matrix[[row2,j]] = t;
+   }
+}
+
+fn eliminate_below_pivot(matrix: &mut Array2<f64>, pivot_row: usize, row: usize) {
+    let factor = matrix[[row, pivot_row]];
+    for j in 0..matrix.ncols() {
+        matrix[[row, j]] = matrix[[row, j]] - matrix[[pivot_row, j]] * factor;
+    }
+}
+
+
+
+pub fn compute_statio_distrib_by_pivot(matrix: &Array2<f64>) -> Option<Array1<f64>> {
+    let n = matrix.nrows() as usize;
+    let mut u = matrix.clone();
+    for i in 0..n {
+        u[[i,i]] -= 1.;
+    }
+
+    
+    // Pivot algorithm implementation
+    for i in 0..n {
+        // Find pivot element
+        let max_row = (i..n).max_by(|&a, &b| u[[a, i]].abs().partial_cmp(&u[[b, i]].abs()).unwrap()).unwrap();
+
+        // Check if column is all zeros
+        if u.column(i).iter().all(|&x| x.abs() < 1e-10) {
+            // Try next columns
+            for j in i+1..n {
+                if !u.column(j).iter().all(|&x| x.abs() < 1e-10) {
+                    // Swap columns
+                    swap_columns(&mut u, i, j);
+                    break;
+                }
+            }
+            // If we couldn't find a non-zero column, matrix might be full rank
+            if u.column(i).iter().all(|&x| x.abs() < 1e-10) {
+                continue;
+            }
+            
+            // update max_row
+            // max_row = (i..n).max_by(|&a, &b| u[[a, i]].abs().partial_cmp(&u[[b, i]].abs()).unwrap()).unwrap();
+        }
+        
+        // Swap rows if needed
+        if max_row != i {
+            swap_rows(&mut u, i, max_row);
+        }
+        
+        // Normalize pivot row
+        let pivot = u[[i, i]];
+        if pivot.abs() < 1e-10 {
+            continue;
+        }
+        u.row_mut(i).mapv_inplace(|x| x / pivot);
+        
+        // Eliminate column entries above and below pivot
+        for j in 0..n {
+            if j != i {
+                eliminate_below_pivot(&mut u, i, j);
+            }
+        }
+    }
+
+    // Find free variables
+    let free_vars: Vec<usize> = (0..n).filter(|&i| u[[i,i]].abs() < 1e-10).collect();
+    
+    if free_vars.is_empty() {
+        return None; // Matrix is full rank
+    }
+    
+    // Construct kernel vector
+    let mut kernel = Array1::zeros(n);
+    kernel[free_vars[0]] = 1.0;
+    
+    // Back-substitution
+    for i in (0..n).rev() {
+        if !free_vars.contains(&i) {
+            let sum: f64 = free_vars.iter().map(|j| u[[i, *j]] * kernel[*j]).sum();
+            kernel[i] = -sum;
+        }
+    }
+
+    let mut sum = 0.;
+    for i in 0..n {
+        sum += kernel[i];
+    }
+
+    for i in 0..n {
+        kernel[i] /= sum;
+    }
+    
+    Some(kernel)
+}
+
+
+
+
+pub fn compute_statio_distrib_by_exp(tm: &Array2<f64>, exp: usize, verbose: usize) -> Array2<f64> {
+    let mut tm_powered = tm.clone();
+    let d = tm.nrows();
+
+    for _ in 0..exp {
+        tm_powered = tm_powered.dot(&tm_powered);
+    }
+    
+    let mut v = Array2::zeros((d, 1));
+    let p = 1./(d as f64);
+    for i in 0..d {
+        v[[i, 0]] = p;
+    }
+    // v[[vertex_id, 0]] = 1.0;
+
+    
+    
+    let result = tm_powered.dot(&v);
+    if verbose >= 3 {
+        println!("{result:?}");
+    }
+    result
+}
+
+
+pub fn compute_statio_distrib_by_iter(tm: &Array2<f64>, exp: usize, verbose: usize) -> Array2<f64>  {  
+    let d = tm.nrows();
+    
+    let mut v = Array2::zeros((d, 1));
+    v[[0, 0]] = 1.0;
+    
+    for _ in 0..exp {
+        v = tm.dot(&v);
+    }
+    if verbose >= 3 {
+        println!("{v:?}");
+    }
+    v
+}
+
+
+
+// pub fn compute_1_eigenvector(tm: &Array2<f64>, verbose: usize)  {  
+
+//     // Compute centered transition matrix
+//     let tm = transition_matrix_centered(vertex_id, tm_common, subset);
+//     let mut tm = tm.t().into_owned();
+
+    
+//     let result = TruncatedSvd::new(tm, TruncatedOrder::Smallest)
+//         .decompose(1)
+//         .unwrap();
+
+//     let (u, sigma, v_t) = result.values_vectors();
+
+//     println!("{u} {sigma} {v_t}");
+    
+
+
+// }
+
 
 
 pub fn print_matrix(matrix: &Array2<f64>) {
