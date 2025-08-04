@@ -266,7 +266,7 @@ pub fn bicluster( wadj: &mut WeightedBiAdjacency, cost_coef: f64, split_threshol
     let mut assigned = vec![false; m];
     let mut nb_assigned = 0;
 
-    let start_instant = Instant::now();
+    let start_instant: Instant = Instant::now();
 
     // While there exists some B vertices to cluster
     loop {

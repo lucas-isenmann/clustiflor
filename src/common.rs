@@ -1,7 +1,8 @@
 use std::{ io::{stdout, Write}};
-
 use ndarray::{Array1, Array2};
 use std::time::{Duration, Instant};
+
+extern crate term_size;
 
 fn swap_columns(matrix: &mut Array2<f64>, col1: usize, col2: usize) {
    for i in 0..matrix.nrows(){
@@ -143,7 +144,11 @@ pub fn compute_statio_distrib_by_iter(tm: &Array2<f64>, exp: usize, verbose: usi
     let d = tm.nrows();
     
     let mut v = Array2::zeros((d, 1));
-    v[[0, 0]] = 1.0;
+    let p = 1./(d as f64);
+    for i in 0..d {
+        v[[i, 0]] = p;
+    }
+    // v[[0, 0]] = 1.0;
     
     for _ in 0..exp {
         v = tm.dot(&v);
@@ -154,7 +159,29 @@ pub fn compute_statio_distrib_by_iter(tm: &Array2<f64>, exp: usize, verbose: usi
     v
 }
 
+pub fn approx_statio_distrib_by_indegree(tm: &Array2<f64>, verbose: usize) -> Array2<f64>  {  
+    let d = tm.nrows();
+    let mut v = Array2::zeros((d, 1));
+    
+    let mut total = 0.;
+    for i in 0..d {
+        let mut indegree = 0.;
+        for j in 0..d {
+            indegree += tm[[i,j]];
+        }
+        v[[i, 0]] = indegree;
+        total += indegree;
+    }
 
+    for i in 0..d {
+        v[[i,0]] /= total;
+    }
+   
+    if verbose >= 3 {
+        println!("{v:?}");
+    }
+    v
+}
 
 // pub fn compute_1_eigenvector(tm: &Array2<f64>, verbose: usize)  {  
 
@@ -202,7 +229,17 @@ pub fn progress_bar(current: usize, total: usize, start_instant: Instant) {
     let elapsed_time = start_instant.elapsed();
     
     let percentage = (current as f64) / (total as f64);
-    let bar_length = 50;
+    let mut bar_length = 50;
+
+    if let Some((w, h)) = term_size::dimensions() {
+        if w >= 55 {
+            bar_length = w-55;
+        } else {
+            bar_length = 0;
+        }
+    } else {
+        println!("Unable to get term size :(")
+    }
     
     let bar = format!(
         "\r[{:>bar_length$}] {}% ({}/{}) | Elapsed: {:>8} | ETA: {:>8}",

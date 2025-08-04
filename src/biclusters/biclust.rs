@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::fmt;
 use std::{collections::HashSet, fs::File};
 use std::io::{BufRead, BufReader, Write};
 use super::algo::AlgoStats;
