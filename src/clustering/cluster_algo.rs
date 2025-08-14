@@ -8,9 +8,9 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 
 use std::collections::HashSet;
 use rand::{seq::SliceRandom, thread_rng};
-use std::time::Instant;
+use std::time::{Instant};
 
-use crate::common::{approx_statio_distrib_by_indegree, compute_statio_distrib_by_exp, compute_statio_distrib_by_pivot, print_matrix, progress_bar};
+use crate::common::{approx_statio_distrib_by_indegree, compute_statio_distrib_by_exp, compute_statio_distrib_by_iter, compute_statio_distrib_by_pivot, dist, print_matrix, progress_bar};
 
 
 
@@ -142,10 +142,10 @@ fn remove_edge(matrix: &mut Array2<f64>, u: usize, v: usize){
     matrix[[v,u]] = 0.
 }
 
-fn add_edge(matrix: &mut Array2<f64>, u: usize, v: usize, weight: f64){
-    matrix[[u,v]] = weight;
-    matrix[[v,u]] = weight
-}
+// fn add_edge(matrix: &mut Array2<f64>, u: usize, v: usize, weight: f64){
+//     matrix[[u,v]] = weight;
+//     matrix[[v,u]] = weight
+// }
 
 
 
@@ -346,6 +346,8 @@ fn transition_matrix_centered(vertex_neighbors_index: usize, tm_common: &Array2<
 
 
 
+// static mut DIFF: i128 = 0;
+
 
 
 
@@ -355,10 +357,33 @@ fn compute_order(subset: &Vec<usize>, vertex: usize, tm_common: &Array2<f64>, ve
     // Compute centered transition matrix
     let tm = transition_matrix_centered(vertex_id, tm_common, subset);
 
-    // Expo matrix method
-    // let v_result = compute_statio_distrib_by_exp(&tm, 4, 0);
-    
-    let v_result = approx_statio_distrib_by_indegree(&tm, verbose);
+    let v_result = compute_statio_distrib_by_iter(&tm, 16, verbose);
+
+    // if let Some(v_perfect) = compute_statio_distrib_by_pivot(&tm) {
+    //     // println!("{}", subset.len());
+    //     // println!("{:.5}", dist(&v_perfect, &v_result));
+    //     let t_pivot = Instant::now();
+    //     compute_statio_distrib_by_pivot(&tm);
+    //     let d_pivot = t_pivot.elapsed().as_millis() as i128;
+
+    //     let mut t_exp = Instant::now();
+    //     let v_exp = compute_statio_distrib_by_exp(&tm, 5, 0);
+    //     let d_exp = t_exp.elapsed().as_millis() as i128;
+    //     let diff_exp = dist(&v_perfect, &v_exp);
+    //     // println!("{:.5}", diff_exp);
+
+    //     let mut t_exp = Instant::now();
+    //     let v_iter = compute_statio_distrib_by_iter(&tm, 16, 0);
+    //     let d_iter = t_exp.elapsed().as_millis() as i128;
+    //     let diff_iter = dist(&v_perfect, &v_iter);
+    //     // println!("{:.5}", diff_iter);
+
+    //     unsafe { 
+    //         // println!("{}", diff_exp - diff_iter);
+    //         DIFF += d_approx - d_iter;
+    //         println!("{:.5}", DIFF);
+    //      };
+    // }
 
 
     // Order subset by decreasing probability

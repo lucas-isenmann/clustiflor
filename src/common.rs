@@ -1,5 +1,5 @@
-use std::{ io::{stdout, Write}};
-use ndarray::{Array1, Array2};
+use std::{io::{stdout, Write}};
+use ndarray::Array2;
 use std::time::{Duration, Instant};
 
 extern crate term_size;
@@ -29,7 +29,7 @@ fn eliminate_below_pivot(matrix: &mut Array2<f64>, pivot_row: usize, row: usize)
 
 
 
-pub fn compute_statio_distrib_by_pivot(matrix: &Array2<f64>) -> Option<Array1<f64>> {
+pub fn compute_statio_distrib_by_pivot(matrix: &Array2<f64>) -> Option<Array2<f64>> {
     let n = matrix.nrows() as usize;
     let mut u = matrix.clone();
     for i in 0..n {
@@ -89,24 +89,24 @@ pub fn compute_statio_distrib_by_pivot(matrix: &Array2<f64>) -> Option<Array1<f6
     }
     
     // Construct kernel vector
-    let mut kernel = Array1::zeros(n);
-    kernel[free_vars[0]] = 1.0;
+    let mut kernel = Array2::zeros((n,1));
+    kernel[[free_vars[0],0]] = 1.0;
     
     // Back-substitution
     for i in (0..n).rev() {
         if !free_vars.contains(&i) {
-            let sum: f64 = free_vars.iter().map(|j| u[[i, *j]] * kernel[*j]).sum();
-            kernel[i] = -sum;
+            let sum: f64 = free_vars.iter().map(|j| u[[i, *j]] * kernel[[*j,0]]).sum();
+            kernel[[i,0]] = -sum;
         }
     }
 
     let mut sum = 0.;
     for i in 0..n {
-        sum += kernel[i];
+        sum += kernel[[i,0]];
     }
 
     for i in 0..n {
-        kernel[i] /= sum;
+        kernel[[i,0]] /= sum;
     }
     
     Some(kernel)
@@ -140,6 +140,10 @@ pub fn compute_statio_distrib_by_exp(tm: &Array2<f64>, exp: usize, verbose: usiz
 }
 
 
+/// Fastest way to compute the stationnary distribution of a transition matrix.
+/// 2x faster than by exponentiating the matrix
+/// 4x faster than by pivot
+/// 
 pub fn compute_statio_distrib_by_iter(tm: &Array2<f64>, exp: usize, verbose: usize) -> Array2<f64>  {  
     let d = tm.nrows();
     
@@ -148,7 +152,6 @@ pub fn compute_statio_distrib_by_iter(tm: &Array2<f64>, exp: usize, verbose: usi
     for i in 0..d {
         v[[i, 0]] = p;
     }
-    // v[[0, 0]] = 1.0;
     
     for _ in 0..exp {
         v = tm.dot(&v);
@@ -204,6 +207,15 @@ pub fn approx_statio_distrib_by_indegree(tm: &Array2<f64>, verbose: usize) -> Ar
 
 
 
+pub fn dist(v: &Array2<f64>, w: &Array2<f64>) -> f64{
+    let mut sum = 0.;
+    for i in 0..v.nrows() {
+        sum +=  (v[[i,0]] - w[[i,0]])* (v[[i,0]] - w[[i,0]])
+    }
+    return f64::sqrt(sum)
+}
+
+
 pub fn print_matrix(matrix: &Array2<f64>) {
     let rows = matrix.shape()[0];
     let cols = matrix.shape()[1];
@@ -231,7 +243,7 @@ pub fn progress_bar(current: usize, total: usize, start_instant: Instant) {
     let percentage = (current as f64) / (total as f64);
     let mut bar_length = 50;
 
-    if let Some((w, h)) = term_size::dimensions() {
+    if let Some((w, _)) = term_size::dimensions() {
         if w >= 55 {
             bar_length = w-55;
         } else {
