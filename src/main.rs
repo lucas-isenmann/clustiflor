@@ -9,7 +9,7 @@ use std::io::{BufRead, BufReader, Write};
 
 use biclusters::algo::load_wadj_from_matrix;
 use biclusters::algo_two_sided::{analyze_ground_biclusters, bicluster_two_sided};
-use biclusters::{algo::{bicluster, load_wadj_from_csv, print_wadj_stats}, biclustering::Biclustering, weighted_biadj::WeightedBiAdjacency, r_results::load_r_biclusters};
+use biclusters::{algo::{bicluster_one_sided, load_wadj_from_csv, print_wadj_stats}, biclustering::Biclustering, weighted_biadj::WeightedBiAdjacency, r_results::load_r_biclusters};
 use rand::Rng;
 use walkdir::WalkDir;
 
@@ -165,7 +165,7 @@ fn run_comparison(){
         
         // Clustiflor
         let start_time = Instant::now();
-        let (clusti_biclusters, clusti_stats) = bicluster(&mut wadj, 1., 1., 3, 0);
+        let (clusti_biclusters, clusti_stats) = bicluster_one_sided(&mut wadj, 1., 1., 3, 0);
         let clustiflor_dur = start_time.elapsed();
         let (labels_a, labels_b, nodes_a_map, nodes_b_map) = wadj.get_labels();
         // biclusters.print_stats(1., 1., 3, &labels_a, &labels_b, Some(&"yo.biclusters"));
@@ -216,7 +216,7 @@ fn run_comparison(){
 
 
 
-fn run_solver(){
+fn run_bicluster_one_sided(){
 
     let program_args: Vec<String> = env::args().collect();
 
@@ -241,13 +241,13 @@ fn run_solver(){
     }
 
 
-    if program_args.len() < 3 {
-        eprintln!("Usage: {} <file_path> <delimiter> --split-th=<number >= 1.>", program_args[0]);
+    if program_args.len() < 4 {
+        eprintln!("Usage: {} bicluster <file_path> <delimiter> --split-th=<number >= 1.>", program_args[0]);
         std::process::exit(1);
     }
 
-    let file_path = &program_args[1];
-    let delimiter = &program_args[2];
+    let file_path = &program_args[2];
+    let delimiter = &program_args[3];
 
     println!("File path: {}", file_path);
     println!("Delimiter: {}", delimiter);
@@ -256,7 +256,7 @@ fn run_solver(){
         let wadj =  load_wadj_from_matrix(file_path);
         print_wadj_stats(&wadj, wadj.get_n(), wadj.get_m());
         let mut wadj2 = wadj.clone();
-        let (biclusters, algo_stats) = bicluster(&mut wadj2, args.size, args.split, args.power, args.verbose);
+        let (biclusters, algo_stats) = bicluster_one_sided(&mut wadj2, args.size, args.split, args.power, args.verbose);
         let results_path = file_path.to_string() + ".biclusters";
         let mut labels_a = vec![];
         let mut labels_b = vec![];
@@ -274,7 +274,7 @@ fn run_solver(){
             (wadj, n, m, labels_a, labels_b, node_map_a, node_map_b) => {
                 print_wadj_stats(&wadj, n, m);
                 let mut wadj2 = wadj.clone();
-                let (biclusters, algo_stats) = bicluster(&mut wadj2, args.size, args.split, args.power, args.verbose);
+                let (biclusters, algo_stats) = bicluster_one_sided(&mut wadj2, args.size, args.split, args.power, args.verbose);
                 let results_path = file_path.to_string() + ".biclusters";
                 biclusters.print_stats(args.size, args.split, args.power, &labels_a, &labels_b, Some(&results_path), algo_stats);
     
@@ -442,7 +442,21 @@ fn process_single_file(file_path: &str, args: &Args) {
 
 fn main() {
 
-    run_cluster_solver();
+    let program_args: Vec<String> = env::args().collect();
+
+    if program_args.len() < 3 || !(program_args[1] == "cluster" || program_args[1] == "bicluster") {
+        eprintln!("Usage: {} cluster|bicluster <data_path>", program_args[0]);
+        std::process::exit(1);
+    }
+
+    if program_args[1] == "cluster" {
+        run_cluster_solver();
+    }
+    else if program_args[1] == "bicluster" {
+        run_bicluster_one_sided();
+    }
+
+
     return;
 
     // run_bicluster_solver();

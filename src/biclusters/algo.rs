@@ -247,7 +247,7 @@ pub struct AlgoStats {
 
 
 
-pub fn bicluster( wadj: &mut WeightedBiAdjacency, cost_coef: f64, split_threshold: f64, markov_power: usize, verbose: usize) -> (Biclust, AlgoStats) {
+pub fn bicluster_one_sided( wadj: &mut WeightedBiAdjacency, cost_coef: f64, split_threshold: f64, markov_power: usize, verbose: usize) -> (Biclust, AlgoStats) {
 
     let min_error = wadj.compute_min_error();
 
@@ -270,8 +270,9 @@ pub fn bicluster( wadj: &mut WeightedBiAdjacency, cost_coef: f64, split_threshol
 
     // While there exists some B vertices to cluster
     loop {
-        
+
         if verbose >= 1 {
+            println!("---");
             println!("{nb_assigned} B / {m} vertices are assigned");
         }
         if nb_assigned == m {
@@ -356,15 +357,22 @@ pub fn bicluster( wadj: &mut WeightedBiAdjacency, cost_coef: f64, split_threshol
         }
         b_clusters.push(best_cluster.clone());
 
-        if verbose >= 2 {
-            println!("Step 3: apply {best_cluster:?}");
+        if verbose >= 1 {
+            println!("Cols cluster: {} size: {} cols: {best_cluster:?}", b_clusters.len()-1, {best_cluster.len()});
         }
         let (a_cluster, del, add, spl )= apply_operations(n, m, best_cluster, wadj, split_threshold, verbose); 
         nb_deletions += del;
         nb_additions += add;
         nb_splits += spl;
         nb_operations += del + add + spl;
-
+        if verbose >= 1{
+            println!("Rows cluster: {:?}", a_cluster);
+            println!("Deletions: {del}");
+            println!("Additions: {add}");
+            println!("Splits: {spl}");
+            println!("Cost: {best_cost:.3}");
+        }
+        
         a_clusters.push(a_cluster);
     }
 
@@ -421,28 +429,37 @@ fn apply_operations(n: usize, m: usize, b_cluster: Vec<usize>, wadj: &mut Weight
 
     for a in 0..n {
         let mut indegree = 0.;
-        for (i,w) in wadj.iter(a+m) {
-            if b_cluster.contains(&i) {
+        for (&col,w) in wadj.iter(a+m) {
+            if b_cluster.contains(&col) {
                 indegree += w;
+                // println!("{col}");
+                // println!("{}", wadj.has_edgee(a, col));
             }
         } 
+        
         if indegree > blen*0.5 {
+            // println!("{a} indegree: {indegree}");
             a_cluster.push(a);
             nb_additions += blen - indegree;
 
-            for &b in b_cluster.iter() {
-                if wadj.has_edgee(a, b) {
-                    wadj.delete_edge(a, b);
-                }   
+            if verbose >= 2 {
+                for &col in b_cluster.iter() {
+                    if wadj.has_edgee(a, col) == false {
+                        println!("add {a} {col}");
+                    }
+                } 
             }
+            
 
-            // Compute the number of neighbors of vertex 'a' outside of X
+            // Compute the number of neighbors of row a outside b_cluster
             let mut out_degree = 0.;
             for (i,w) in wadj.iter(a+m) {
                 if b_cluster.contains(&i) == false {
                     out_degree += w;
                 }
             }
+
+
 
             // Delete case
             if out_degree <= split_threshold {
@@ -455,20 +472,25 @@ fn apply_operations(n: usize, m: usize, b_cluster: Vec<usize>, wadj: &mut Weight
                         wadj.delete_edge(a, b);
                     }
                 }
+                for &b in b_cluster.iter() { // I think it is useless
+                    if wadj.has_edgee(a, b) {
+                        wadj.delete_edge(a, b);
+                    }   
+                }
             } 
             // Split case
             else { 
                 nb_splits += 1.;
-                if verbose >= 2 {
+                if verbose >= 1 {
                     println!("split {a}")
                 }
                 for &b in b_cluster.iter() {
                     if wadj.has_edgee(a, b) {
+                        // println!("spl del {a} {b}");
                         wadj.delete_edge(a, b);
                     }
                 }
             }
-
 
 
         }
@@ -483,7 +505,9 @@ fn apply_operations(n: usize, m: usize, b_cluster: Vec<usize>, wadj: &mut Weight
                 }
             }
         }
+
     }
+
 
     (a_cluster, nb_deletions, nb_additions, nb_splits)
 }

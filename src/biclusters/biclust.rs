@@ -453,8 +453,8 @@ impl Biclust {
         let mut file = File::create(&file_name).expect("Failed to open file");
 
         writeln!(file, "# Bipartite graphs statistics").unwrap();
-        writeln!(file, "- Size of A (nb rows): {}", self.n).unwrap();
-        writeln!(file, "- Size of B (nb cols): {}", self.m).unwrap();
+        writeln!(file, "- Number of rows: {}", self.n).unwrap();
+        writeln!(file, "- Number of cols: {}", self.m).unwrap();
         
         writeln!(file, "\n# Hyperparameters").unwrap();
         writeln!(file, "- size sensivity: {size_sensivity}").unwrap();
@@ -462,19 +462,19 @@ impl Biclust {
         writeln!(file, "- markov power: {markov_power}").unwrap();
         
         writeln!(file, "\n# Results").unwrap();
-        writeln!(file, "- Adjusted erros: {:.3}", algo_stats.adjusted_error).unwrap();
-        writeln!(file, "- Nb isolated A vertices (rows): {}", self.nb_isolated_a()).unwrap();
-        writeln!(file, "- Nb isolated B vertices (cols): {}", self.nb_isolated_b()).unwrap();
+        writeln!(file, "- Adjusted errors ratio: {:.3}", algo_stats.adjusted_error).unwrap();
+        writeln!(file, "- Nb isolated rows: {}", self.nb_isolated_a()).unwrap();
+        writeln!(file, "- Nb isolated cols: {}", self.nb_isolated_b()).unwrap();
         writeln!(file, "- Nb operations: {:.3}", algo_stats.nb_operations).unwrap();
         writeln!(file, "- Nb splits: {}", algo_stats.nb_splits).unwrap();
         writeln!(file, "- Nb additions: {:.3}", algo_stats.nb_additions).unwrap();
         writeln!(file, "- Nb deletions: {:.3}", algo_stats.nb_deletions).unwrap();
 
         writeln!(file, "- Number of biclusters: {}", self.biclusters.len()).unwrap();
-        writeln!(file, "- A Overlapping: {:.3}", self.get_rows_overlapping()).unwrap();
+        writeln!(file, "- Row Overlapping: {:.3}", self.get_rows_overlapping()).unwrap();
 
         writeln!(file, "").unwrap();
-        writeln!(file, "# Clusters\n").unwrap();
+        writeln!(file, "# Biclusters\n").unwrap();
 
         for bicluster in self.biclusters.iter() {
             for &x in bicluster {
@@ -485,6 +485,15 @@ impl Biclust {
                 }
             }
             writeln!(file, "").unwrap();
+        }
+
+        writeln!(file, "\n# Bicluster memberships\n").unwrap();
+
+        for row in 0..self.n {
+            writeln!(file, "Row {row} {}: {:?}", labels_a[row], self.rows_memberships[row]).unwrap();
+        }
+        for col in 0..self.m {
+            writeln!(file, "Col {col} {}: {:?}", labels_b[col], self.cols_memberships[col]).unwrap();
         }
         println!("Biclusters printed to {}", file_name);
 
