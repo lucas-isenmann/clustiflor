@@ -4,7 +4,6 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 
 use super::biclust::Biclust;
-use super::biclustering::Biclustering;
 
 
 

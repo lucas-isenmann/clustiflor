@@ -26,12 +26,12 @@ Hyperparameters:
     --split-threshold=1 (float >= 1., default value: 1)
     --samples-size=10 (integer, default value: 10)
     --ignore-weights to ignore weights when loading a file
-
+    --verbose=? (integer, default value: 0)
 
 Launch
 
-    cargo run --release data.txt
-    cargo run --release data.txt --split-threshold=2
+    cargo run --release cluster data.txt
+    cargo run --release cluster data.txt --split-threshold=2
 
 
 
@@ -56,9 +56,8 @@ Hyperparameters:
 
     --cost=1 should be in [0,1] (default value: 1)
     --split=1 should be >= 1 (default value: 1)
-    --power=3 should be an integer (default value: 3)
 
 
 Launch
 
-    cargo run --release data.adj " "
+    cargo run --release bicluster data.txt

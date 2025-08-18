@@ -1,16 +1,10 @@
 use core::f64;
 use std::collections::HashMap;
 use std::time::Instant;
-
 use ndarray::Array2;
-
-
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 
 use crate::biclusters::biclust::Biclust;
 use crate::common::{print_matrix, progress_bar};
-
 use super::common::transition_matrix_b;
 use super::weighted_biadj::WeightedBiAdjacency;
 
@@ -482,7 +476,7 @@ fn apply_operations(n: usize, m: usize, b_cluster: Vec<usize>, wadj: &mut Weight
             else { 
                 nb_splits += 1.;
                 if verbose >= 1 {
-                    println!("split {a}")
+                    println!("split {a} {}", wadj.get_label(a))
                 }
                 for &b in b_cluster.iter() {
                     if wadj.has_edgee(a, b) {
@@ -514,13 +508,6 @@ fn apply_operations(n: usize, m: usize, b_cluster: Vec<usize>, wadj: &mut Weight
 
 
 
-fn compute_overlapping(a_clusters: &Vec<Vec<usize>>, n: usize) -> f64 {
-    let mut sum = 0.;
-    for a_cluster in a_clusters {
-        sum += a_cluster.len() as f64;
-    }
-    sum / (n as f64)
-}
 
 
 
@@ -584,176 +571,7 @@ fn check_integrity(a_clusters: &Vec<Vec<usize>>, b_clusters: &Vec<Vec<usize>>, n
 
 
 
-
-
-pub fn load_wadj_from_csv(file_path: &str, del: &str, split_rows: bool) -> (WeightedBiAdjacency, usize, usize, Vec<String>, Vec<String>, HashMap<String, usize>, HashMap<String, usize>) {
-
-    let file = File::open(file_path).expect("Failed to open file");
-    let reader = BufReader::new(file);
-
-    let mut n = 0;
-    let mut m = 0;
-    let mut node_map_a = HashMap::<String, usize>::new();
-    let mut node_map_b = HashMap::<String, usize>::new();
-    let mut labels_a = Vec::new();
-    let mut labels_b = Vec::new();
-    let mut edges: Vec<(usize, usize, f64)> = vec![];
-
-    for line in reader.lines() {
-        if let Ok(line) = line {
-            if line.starts_with('#') {
-                continue;
-            }
-
-
-            let values: Vec<&str> = line.split(del).collect();
-            
-            if values.len() <= 1 {
-                eprintln!("Error: Line has less than 2 columns. Skipping.");
-                continue; 
-            }
-
-
-            let node1 = if split_rows {
-                String::from(values[0])
-            } else {
-                String::from(values[1])
-            };
-            let node2 = if split_rows {
-                String::from(values[1])
-            } else {
-                String::from(values[0])
-            };
-
-            // Add both nodes to the maps if not already present
-            if !node_map_a.contains_key(&node1) {
-                node_map_a.insert(node1.clone(), n);
-                labels_a.push(node1.clone());
-                n += 1;
-            }
-            if !node_map_b.contains_key(&node2) {
-                node_map_b.insert(node2.clone(), m);
-                labels_b.push(node2.clone());
-                m += 1;
-            }
-
-            let n1 = node_map_a.get(&node1).unwrap();
-            let n2 = node_map_b.get(&node2).unwrap();
-
-            let mut weight = 1.;
-            if values.len() >= 3 {
-                weight = values[2].parse().unwrap();
-            }
-            edges.push((*n1, *n2, weight))
-        }
-    }
-
-    let mut wadj = WeightedBiAdjacency::new(n, m);
-    for &(a,b,w) in edges.iter() {
-        wadj.add_edge(a, b, w);
-    }
-
-
-
-    (wadj, n, m, labels_a, labels_b, node_map_a, node_map_b)
-}
-
-
-/// 
-/// 
-pub fn load_wadj_from_matrix(file_path: &str) -> WeightedBiAdjacency {
-    let file = File::open(file_path).expect("Failed to open file");
-    let reader = BufReader::new(file);
-
-    let mut n = 0;
-    let mut m = 0;
-    let mut edges: Vec<(usize, usize, f64)> = vec![];
-    let mut biclusters: Vec<Vec<usize>> = vec![];
-
-    for line in reader.lines() {
-        if let Ok(line) = line {
-
-             // Skip empty lines and comments
-             if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            
-            // Parse bicluster definition
-            if line.starts_with("BC") {
-                let members_str = &line[3..];
-                if members_str.len() == 0{
-                    continue;
-                }
-                let members: Vec<usize> = members_str
-                    .split(',')
-                    .map(|x| x.parse().expect("Invalid bicluster member"))
-                    .collect();
-                biclusters.push(members);
-                continue;
-            }
-
-            let values: Vec<&str> = line.split(" ").collect();
-            m = values.len();
-
-            for j in 0..m {
-                let weight: f64 = values[j].parse().unwrap();
-                if weight != 0. {
-                    edges.push((n, j, weight));
-                }
-            }
-            n += 1;
-
-        }
-    }
-
-    let mut wadj = WeightedBiAdjacency::new(n, m);
-    for &(a,b,w) in edges.iter() {
-        wadj.add_edge(a, b, w);
-    }
-
-    wadj.set_ground_biclusters(Biclust::from_biclusters(n, m, &biclusters));
-
-    wadj
-}
-
-
-
-
-pub fn print_wadj_stats(wadj: &WeightedBiAdjacency, n: usize, m: usize){
-
-
-
-    println!("# Data statistics");
-    println!("- n: {n}");
-    println!("- m: {m}");
-
-    let mut minw = f64::NAN;
-    let mut maxw = f64::NAN;
-    let mut ne = 0;
-    let mut density = 0.;
-    for b in 0..m {
-        ne += wadj.col_degree(b);
-        for (_, &w) in wadj.iter(b) {
-            if maxw.is_nan() || w > maxw {
-                maxw = w;
-            }
-            if minw.is_nan() || w < minw {
-                minw = w;
-            }
-            density += w;
-        }
-    }
-    density /= (n*m) as f64;
-    println!("- Number of edges: {ne}");
-    println!("- Density of edges: {:.3}", (ne as f64)/((n*m) as f64));
-
-    println!("- Min weight: {minw}");
-    println!("- Max weight: {maxw}");
-    println!("- Avg weight: {density:.3}");
-    println!("- Min error: {:.3}", wadj.compute_min_error());
-
-
-}
+    
 
 
 fn biclusters_contains_subset(biclusters: &Vec<Vec<usize>>, subset: &Vec<usize>) -> bool{

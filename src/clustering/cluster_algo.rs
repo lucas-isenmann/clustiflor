@@ -108,6 +108,10 @@ pub fn load_edges_file(file_name: &str, delimiter: char, ignore_weights: bool) -
                 let mut weight = 1.;
                 if values.len() >= 3 && ignore_weights == false{
                     weight = values[2].parse().unwrap();
+
+                    if weight < 0.0 || weight > 1.0 {
+                        panic!("Weight should be in [0,1]");
+                    }
                 }
                 if weight > 0. {
                     data.push((*n1, *n2, weight));
@@ -713,13 +717,13 @@ pub fn run_cluster_solver() {
     let program_args: Vec<String> = env::args().collect();
 
     if program_args.len() < 2 {
-        eprintln!("Usage: {} <data_path>", program_args[0]);
+        eprintln!("Usage: {} cluster <data_path>", program_args[0]);
         std::process::exit(1);
     }
 
     let mut split_threshold = 1.;
     let mut verbose_level = 0;
-    let data_path = &program_args[1];
+    let data_path = &program_args[2];
     let mut samples_size = 10;
     let mut ignore_weights = false;
 

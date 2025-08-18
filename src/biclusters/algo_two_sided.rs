@@ -10,7 +10,6 @@ use crate::biclusters::biclust::Biclust;
 use crate::common::{print_matrix, progress_bar};
 
 use super::algo::AlgoStats;
-use super::biclustering::Biclustering;
 use super::common::{rows_transition_matrix, transition_matrix_b};
 use super::weighted_biadj::WeightedBiAdjacency;
 

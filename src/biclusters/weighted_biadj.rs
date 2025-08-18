@@ -1,5 +1,5 @@
 use std::{collections::HashMap, fs::File};
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 
 use ndarray::Array2;
 use rand::Rng;
@@ -7,7 +7,6 @@ use rand::Rng;
 use crate::common::print_matrix;
 
 use super::biclust::Biclust;
-use super::biclustering::Biclustering;
 
 
 #[derive(Clone)]
@@ -78,6 +77,14 @@ impl WeightedBiAdjacency {
         self.m
     }
 
+    pub fn get_label(&self, x: usize) -> String {
+        if x < self.n {
+            self.labels_a[x].clone()
+        } else {
+            self.labels_b[x-self.n].clone()
+        }
+    }
+
     pub fn get_labels(&self) -> (Vec<String>, Vec<String>, HashMap<String, usize>, HashMap<String, usize>) {
         (self.labels_a.clone(), self.labels_b.clone(), self.nodes_a_map.clone(), self.nodes_b_map.clone())
     }
@@ -144,6 +151,42 @@ impl WeightedBiAdjacency {
     }
 
     
+    pub fn print_wadj_stats(&self){
+        let n = self.get_n();
+        let m = self.get_m();
+
+
+        println!("# Data statistics");
+        println!("- n: {n}");
+        println!("- m: {m}");
+
+        let mut minw = f64::NAN;
+        let mut maxw = f64::NAN;
+        let mut ne = 0;
+        let mut density = 0.;
+        for b in 0..m {
+            ne += self.col_degree(b);
+            for (_, &w) in self.iter(b) {
+                if maxw.is_nan() || w > maxw {
+                    maxw = w;
+                }
+                if minw.is_nan() || w < minw {
+                    minw = w;
+                }
+                density += w;
+            }
+        }
+        density /= (n*m) as f64;
+        println!("- Number of edges: {ne}");
+        println!("- Density of edges: {:.3}", (ne as f64)/((n*m) as f64));
+
+        println!("- Min weight: {minw}");
+        println!("- Max weight: {maxw}");
+        println!("- Avg weight: {density:.3}");
+        println!("- Min error: {:.3}", self.compute_min_error());
+    }
+
+
 
     /// noise is the average number of fliped edges
     /// row_overlap >= 1: row_overlap = 1 then each row is a unique bicluster
@@ -360,6 +403,152 @@ impl WeightedBiAdjacency {
         r / (self.n * self.m) as f64
     }
 
+
+
+    /// 
+    /// 
+    pub fn load_wadj_from_matrix(file_path: &str) -> WeightedBiAdjacency {
+        let file = File::open(file_path).expect("Failed to open file");
+        let reader = BufReader::new(file);
+
+        let mut n = 0;
+        let mut m = 0;
+        let mut edges: Vec<(usize, usize, f64)> = vec![];
+        let mut biclusters: Vec<Vec<usize>> = vec![];
+
+        for line in reader.lines() {
+            if let Ok(line) = line {
+
+                // Skip empty lines and comments
+                if line.is_empty() || line.starts_with('#') {
+                    continue;
+                }
+                
+                // Parse bicluster definition
+                if line.starts_with("BC") {
+                    let members_str = &line[3..];
+                    if members_str.len() == 0{
+                        continue;
+                    }
+                    let members: Vec<usize> = members_str
+                        .split(',')
+                        .map(|x| x.parse().expect("Invalid bicluster member"))
+                        .collect();
+                    biclusters.push(members);
+                    continue;
+                }
+
+                let values: Vec<&str> = line.split(" ").collect();
+                m = values.len();
+
+                for j in 0..m {
+                    let weight: f64 = values[j].parse().unwrap();
+                    if weight != 0. {
+                        edges.push((n, j, weight));
+                    }
+                }
+                n += 1;
+
+            }
+        }
+
+        let mut wadj = WeightedBiAdjacency::new(n, m);
+        for &(a,b,w) in edges.iter() {
+            wadj.add_edge(a, b, w);
+        }
+
+        wadj.set_ground_biclusters(Biclust::from_biclusters(n, m, &biclusters));
+
+        wadj
+    }
+
+
+
+    pub fn load_wadj_from_csv(file_path: &str, del: &str, split_rows: bool) -> WeightedBiAdjacency {
+
+        let file = File::open(file_path).expect("Failed to open file");
+        let reader = BufReader::new(file);
+
+        let mut n = 0;
+        let mut m = 0;
+        let mut node_map_a = HashMap::<String, usize>::new();
+        let mut node_map_b = HashMap::<String, usize>::new();
+        let mut labels_a = Vec::new();
+        let mut labels_b = Vec::new();
+        let mut edges: Vec<(usize, usize, f64)> = vec![];
+
+        for line in reader.lines() {
+            if let Ok(line) = line {
+                if line.starts_with('#') {
+                    continue;
+                }
+
+                let values: Vec<&str> = line.split(del).collect();
+                
+                if values.len() <= 1 {
+                    eprintln!("Error: Line has less than 2 columns. Skipping.");
+                    continue; 
+                }
+
+                if values.len() >= 4 {
+                    eprintln!("Error: Line '{line}' should be in format <x y> or <x y w> where w is the weight in [0,1]");
+                    eprintln!("Error: Or if it is a comment, it should start with #");
+                    continue; 
+                }
+
+                let node1 = if split_rows {
+                    String::from(values[0])
+                } else {
+                    String::from(values[1])
+                };
+                let node2 = if split_rows {
+                    String::from(values[1])
+                } else {
+                    String::from(values[0])
+                };
+
+                // Add both nodes to the maps if not already present
+                if !node_map_a.contains_key(&node1) {
+                    node_map_a.insert(node1.clone(), n);
+                    labels_a.push(node1.clone());
+                    n += 1;
+                }
+                if !node_map_b.contains_key(&node2) {
+                    node_map_b.insert(node2.clone(), m);
+                    labels_b.push(node2.clone());
+                    m += 1;
+                }
+
+                let n1 = node_map_a.get(&node1).unwrap();
+                let n2 = node_map_b.get(&node2).unwrap();
+
+                let mut weight = 1.;
+                if values.len() >= 3 {
+                    weight = values[2].parse().unwrap();
+                    if weight > 1.0 || weight < 0.0{
+                        if weight > 1.0 {
+                            panic!("Weight must be in range [0,1]");
+                        }
+                    }
+                }
+                edges.push((*n1, *n2, weight))
+            }
+        }
+
+        let mut wadj = WeightedBiAdjacency::new(n, m);
+        for &(a,b,w) in edges.iter() {
+            wadj.add_edge(a, b, w);
+        }
+
+        wadj.nodes_a_map = node_map_a;
+        wadj.nodes_b_map = node_map_b;
+        wadj.labels_a = labels_a;
+        wadj.labels_b = labels_b;
+
+        wadj
+    }
+
+
 }
 
 
@@ -399,4 +588,27 @@ fn shuffle<T>(vec: &mut Vec<T>) {
         let j = rng.gen_range(0..=i);
         vec.swap(i, j);
     }
+}
+
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[should_panic]
+    fn test_invalid_file_path_panics() {
+        WeightedBiAdjacency::load_wadj_from_csv("nonexistent_file.csv", " ", true);
+    }
+
+
+    #[test]
+    #[should_panic]
+    fn test_invalid_weight() {
+        WeightedBiAdjacency::load_wadj_from_csv("src/test_data/bad_weight.txt", " ", true);
+    }
+
+    
 }
