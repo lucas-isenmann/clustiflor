@@ -1,13 +1,16 @@
 use std::collections::HashMap;
+use std::env;
 use ndarray::Array2;
+use rand::rngs::ThreadRng;
 
 use std::fs::File;
-use std::io::{BufRead, BufReader};
-
+use std::io::{BufRead, BufReader, BufWriter, Write};
 
 use std::collections::HashSet;
 use rand::{seq::SliceRandom, thread_rng};
-use std::time::Instant;
+use std::time::{Instant};
+
+use crate::common::{approx_statio_distrib_by_indegree, compute_statio_distrib_by_exp, compute_statio_distrib_by_iter, compute_statio_distrib_by_pivot, dist, print_matrix, progress_bar};
 
 
 
@@ -105,8 +108,15 @@ pub fn load_edges_file(file_name: &str, delimiter: char, ignore_weights: bool) -
                 let mut weight = 1.;
                 if values.len() >= 3 && ignore_weights == false{
                     weight = values[2].parse().unwrap();
+
+                    if weight < 0.0 || weight > 1.0 {
+                        panic!("Weight should be in [0,1]");
+                    }
                 }
-                data.push((*n1, *n2, weight));
+                if weight > 0. {
+                    data.push((*n1, *n2, weight));
+
+                }
                 // println!("{:?} {ignore_weights}", data.last());
             }
         }
@@ -136,10 +146,10 @@ fn remove_edge(matrix: &mut Array2<f64>, u: usize, v: usize){
     matrix[[v,u]] = 0.
 }
 
-fn add_edge(matrix: &mut Array2<f64>, u: usize, v: usize, weight: f64){
-    matrix[[u,v]] = weight;
-    matrix[[v,u]] = weight
-}
+// fn add_edge(matrix: &mut Array2<f64>, u: usize, v: usize, weight: f64){
+//     matrix[[u,v]] = weight;
+//     matrix[[v,u]] = weight
+// }
 
 
 
@@ -150,6 +160,7 @@ fn add_edge(matrix: &mut Array2<f64>, u: usize, v: usize, weight: f64){
     It is the closed neighborhood.
  */
 fn compute_neighbors(matrix: &Array2<f64>, v: usize, d: usize) -> Vec<usize>{
+    let n = matrix.nrows();
     let mut neighbors = vec![v];
     let mut last = vec![v];
 
@@ -158,7 +169,7 @@ fn compute_neighbors(matrix: &Array2<f64>, v: usize, d: usize) -> Vec<usize>{
         // let l = last.clone();
         // last.clear();
         for &w in &last {
-            for u in 0..matrix.shape()[0] {
+            for u in 0..n {
                 if matrix[[w,u]] > 0. && !neighbors.contains(&u) {
                     neighbors.push(u);
                     new_last.push(u)
@@ -198,7 +209,7 @@ fn compute_transition_matrix(matrix: &Array2<f64>, n: usize) -> Array2<f64> {
 
 
 
-fn best(matrix: &Array2<f64>, order: &Vec<(usize, f64)>, split_threshold: f64) -> (f64, Vec<usize>) {
+fn best(matrix: &Array2<f64>, order: &Vec<(usize, f64)>, split_threshold: f64, verbose: usize) -> (f64, Vec<usize>) {
     let n = matrix.shape()[0];
     let mut best_weight = std::f64::INFINITY;
     let mut best_cluster = Vec::new();
@@ -289,6 +300,9 @@ fn best(matrix: &Array2<f64>, order: &Vec<(usize, f64)>, split_threshold: f64) -
         // Check if there are any problematic pairs
         if problematic_pairs.is_empty() {
             // Calculate cost
+            if verbose >= 2{
+                println!("cluster: {cluster:?} cost: {c}");
+            }
             let cost = c* (cluster.len() as f64).powf(-1.0);
             if cost == 0.0 {
                 return (cost, cluster);
@@ -324,33 +338,57 @@ fn transition_matrix_centered(vertex_neighbors_index: usize, tm_common: &Array2<
         for nj in 0..d{
             let j = neighbors[nj];
             let j_index = j;
-            tmc[[ni,nj]] = tm_common[[i_index,j_index]];
-            s += tmc[[ni,nj]];
+            tmc[[nj,ni]] = tm_common[[i_index,j_index]];
+            s += tmc[[nj,ni]];
         }
-        tmc[[ni,vertex_neighbors_index]] += 1. - s;
+        tmc[[vertex_neighbors_index, ni]] += 1. - s;
     }
     return tmc
 }
 
 
 
-fn compute_order(subset: &Vec<usize>, vertex: usize, tm_common: &Array2<f64>) -> Vec<(usize, f64)> {  
-    let d = subset.len();
+
+
+// static mut DIFF: i128 = 0;
+
+
+
+
+fn compute_order(subset: &Vec<usize>, vertex: usize, tm_common: &Array2<f64>, verbose: usize) -> Vec<(usize, f64)> {  
     let vertex_id = subset.iter().position(|&v| v == vertex).unwrap();
 
     // Compute centered transition matrix
     let tm = transition_matrix_centered(vertex_id, tm_common, subset);
 
-    // Compute tm^8*v_0
-    let mut tm_powered = tm.t().into_owned();
-    tm_powered = tm_powered.dot(&tm_powered);
-    tm_powered = tm_powered.dot(&tm_powered);
-    // tm_powered = tm_powered.dot(&tm_powered);
-    
-    let mut v = Array2::zeros((d, 1));
-    v[[vertex_id, 0]] = 1.0;
-    
-    let v_result = tm_powered.dot(&v);
+    let v_result = compute_statio_distrib_by_iter(&tm, 16, verbose);
+
+    // if let Some(v_perfect) = compute_statio_distrib_by_pivot(&tm) {
+    //     // println!("{}", subset.len());
+    //     // println!("{:.5}", dist(&v_perfect, &v_result));
+    //     let t_pivot = Instant::now();
+    //     compute_statio_distrib_by_pivot(&tm);
+    //     let d_pivot = t_pivot.elapsed().as_millis() as i128;
+
+    //     let mut t_exp = Instant::now();
+    //     let v_exp = compute_statio_distrib_by_exp(&tm, 5, 0);
+    //     let d_exp = t_exp.elapsed().as_millis() as i128;
+    //     let diff_exp = dist(&v_perfect, &v_exp);
+    //     // println!("{:.5}", diff_exp);
+
+    //     let mut t_exp = Instant::now();
+    //     let v_iter = compute_statio_distrib_by_iter(&tm, 16, 0);
+    //     let d_iter = t_exp.elapsed().as_millis() as i128;
+    //     let diff_iter = dist(&v_perfect, &v_iter);
+    //     // println!("{:.5}", diff_iter);
+
+    //     unsafe { 
+    //         // println!("{}", diff_exp - diff_iter);
+    //         DIFF += d_approx - d_iter;
+    //         println!("{:.5}", DIFF);
+    //      };
+    // }
+
 
     // Order subset by decreasing probability
     let mut order: Vec<(usize, f64)> = subset.iter().enumerate()
@@ -359,25 +397,38 @@ fn compute_order(subset: &Vec<usize>, vertex: usize, tm_common: &Array2<f64>) ->
     
     order.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
     
+    if verbose >= 3 {
+        println!("vertex: {vertex}");
+        print_matrix(&tm);
+        println!("{order:?}");
+    }
+
     order
 
 }
 
 
 
-fn choose_unique_random_numbers(n: usize, k: usize, assigned: &HashSet<usize>) -> Vec<usize> {
-    let mut all_numbers: Vec<usize> = (0..n).collect();
-    
-    all_numbers.retain(|&x| !assigned.contains(&x));
+/// Pick a random sample of size k in (0..n-1) such that no indices are in assigned.
+/// If k > the number of unassigned vertices, then retain all the unassigned vertices 
+fn pick_unassigned_sample(rng: &mut ThreadRng, k: usize, unassigned: &HashSet<usize>) -> Vec<usize> {
+    let mut all_numbers: Vec<usize> =vec![];
+    for v in unassigned {
+        all_numbers.push(*v);
+    }
+    // all_numbers.retain(|&x| !assigned.contains(&x));
     
     if all_numbers.len() < k {
         return all_numbers
     }
 
-    let mut rng = thread_rng();
-    all_numbers.shuffle(&mut rng);
 
-    all_numbers.drain(..k).collect()
+    all_numbers.shuffle(rng);
+    let mut result = vec![];
+    for i in 0..k {
+        result.push(all_numbers[i]);
+    }
+    result
 }
 
 
@@ -396,7 +447,7 @@ fn clusters_size_stats(clusters: &Vec<Vec<usize>>) {
     let total_length: usize = sorted_vectors.iter().map(|v| v.len()).sum();
     let average_length = total_length as f64 / clusters.len() as f64;
 
-    println!("Clusters size distribution");
+    println!("# Clusters size distribution");
     println!("- Average size: {:.2}", average_length);
     println!("- Max size: {}", sorted_vectors[0].len());
     // println!("- Second max size: {}", sorted_vectors[1].len());
@@ -424,132 +475,111 @@ fn clusters_size_stats(clusters: &Vec<Vec<usize>>) {
 ///
 /// ```
 
-pub fn cluster_graph(mut matrix: Array2<f64>, verbose: bool, dist: usize, samples_size: usize, split_threshold: f64) -> Vec<Vec<usize>> {
+pub fn cluster_graph(mut matrix: Array2<f64>, verbose: usize, dist: usize, samples_size: usize, split_threshold: f64) -> Vec<Vec<usize>> {
 
-    let n = matrix.shape()[0];
-    // println!("n = {n} {}", original_vertices.len());
-    let mut assigned = HashSet::new();
+    let mut rng = thread_rng();
+
+    let n = matrix.nrows();
+    let mut unassigned: HashSet<usize> = (0..n).collect();
     let mut c = 0.;
 
     let mut nb_splits = 0;
+    let mut nb_deletions: usize = 0;
+    let mut deletions_cost = 0.;
     let mut assignation: Vec<Vec<usize>> = vec![vec![]; n];
     let mut nb_clusters = 0;
     let mut clusters = vec![];
 
+    let mut isolated_vertices = vec!();
+
+    let start_instant: Instant = Instant::now();
+
+
     loop {
-        println!("-------\n");
-        // println!("{} {}", matrix[[2381, 47]], matrix[[47, 2381]]);
-        let mut best_cost = std::f64::INFINITY;
-        let mut best_cluster = vec![];
-
-        // let start = Instant::now();
-        let tm = compute_transition_matrix(&matrix, n);
-        // let duration = Instant::now().duration_since(start);
-        // println!("Transition matrix {:.6} seconds", duration.as_millis() as f64 / 1000.0);
-
+        if verbose >= 1 {
+            println!("-------");
+        } else {
+            progress_bar(n-unassigned.len(), n, start_instant);
+        }
 
         let mut mindeg = 100000;
         let mut minv = None;
         let mut maxdeg = 0;
-        // let mut maxv = None;
+        let mut maxv = None;
+        isolated_vertices.clear();
 
-        for v in 0..n {
-            if !assigned.contains(&v) {
+        // Search min/max degree and isolated vertices
+        for &v in unassigned.iter() {
                 let mut degree = 0;
                 for j in 0..n {
                     if matrix[[v,j]] > 0.0 {
                         degree += 1
                     }
                 }
+                if degree == 0 {
+                    isolated_vertices.push(v);
+                }
                 if degree > maxdeg {
                     maxdeg = degree;
-                    // maxv = Some(v);
+                    maxv = Some(v);
                 }
                 if degree < mindeg {
                     mindeg = degree;
                     minv = Some(v);
                 }
-            }
         }
 
+        // Cluster isolated vertices
+        for &v in isolated_vertices.iter() {
+            unassigned.remove(&v);
+            assignation[v].push(nb_clusters);
+            nb_clusters += 1;
+            clusters.push(vec![v]);
+        }
+        if isolated_vertices.is_empty() == false {
+            if verbose >= 1 {
+                println!("Nb isolated vertices: {}", isolated_vertices.len());
+                println!("Unassigned: {}/{n}", unassigned.len());
+            }
+            continue;
+        }
+
+
+
+        let mut best_cost = std::f64::INFINITY;
+        let mut best_cluster = vec![];
+        let tm = compute_transition_matrix(&matrix, n);
+
+        // Pick a sample
+        let mut sample = pick_unassigned_sample(&mut rng,  samples_size, &unassigned);
+
+        // Add minv and maxv if they are not in the sample
         if let Some(minv) = minv {
-            // println!("Center: {minv} degree: {mindeg}");
-            // let x = compute_neighbors(&matrix, minv, 1);
-
-            // println!("vertex: {minv} N[v]: {x:?} {}", x.len());
-
-
-            // let start = Instant::now();
-            let x1 = compute_neighbors(&matrix, minv, dist);
-            // let duration = Instant::now().duration_since(start);
-            // println!("Compute neighbors {:.6} seconds", duration.as_millis() as f64 / 1000.0);
-
-            // println!("Try size: {}", x1.len());
-            // println!("vertex: {minv} N[v]: {x1:?} {}", x1.len());
-
-            // let start = Instant::now();
-            let order1 = compute_order(&x1, minv, &tm);
-            // let duration = Instant::now().duration_since(start);
-            // println!("order {:.6} seconds", duration.as_millis() as f64 / 1000.0);
-
-            // println!("Order: {order1:?}");
-            // let start = Instant::now();
-            let (cost1, cluster1) = best(&matrix, &order1, split_threshold);
-            // let duration = Instant::now().duration_since(start);
-            // println!("best {:.6} seconds", duration.as_millis() as f64 / 1000.0);
-
-            if cost1 < best_cost {
-                best_cost = cost1;
-                best_cluster = cluster1;
+            if sample.contains(&minv) == false{
+                sample.push(minv);
             }
         }
-
-
-
-        // Samples
-        let sample = choose_unique_random_numbers(n , samples_size-1, &assigned);
+        if let Some(maxv) = maxv {
+            if sample.contains(&maxv) == false {
+                sample.push(maxv);
+            }
+        }
 
         for v in sample {
-            // let start = Instant::now();
-            let subset: Vec<usize> = compute_neighbors(&matrix, v, dist);
-            // let duration = Instant::now().duration_since(start);
-            // println!("Compute neighbors {:.6} seconds", duration.as_millis() as f64 / 1000.0);
+            let neighbors: Vec<usize> = compute_neighbors(&matrix, v, dist);
 
-            // println!("Subset: {}", subset.len());
-            // println!("vertex: {minv} N[v]: {x1:?} {}", x1.len());
+            let order: Vec<(usize, f64)> = compute_order(&neighbors, v, &tm, verbose);
 
-            // let start = Instant::now();
-            let order1: Vec<(usize, f64)> = compute_order(&subset, v, &tm);
-            // let duration = Instant::now().duration_since(start);
-            // println!("order {:.6} seconds", duration.as_millis() as f64 / 1000.0);
-            
-            // println!("Order: {order1:?}");
-            // let start = Instant::now();
-            let (cost1, cluster1) = best(&matrix, &order1, split_threshold);
-            // let duration = Instant::now().duration_since(start);
-            // println!("best {:.6} seconds", duration.as_millis() as f64 / 1000.0);
+            let (cost, cluster) = best(&matrix, &order, split_threshold, verbose);
 
-            if cost1 < best_cost {
-                best_cost = cost1;
-                best_cluster = cluster1;
+            if cost < best_cost {
+                best_cost = cost;
+                best_cluster = cluster;
             }
         }
 
         
 
-
-        // Commented out part for max vertex (as in original Python code)
-        /*
-        if let Some(maxv) = maxv {
-            let x1 = compute_2neighbors(&graph, maxv);
-            let order1 = compute_order(&x1, maxv, &tm, &original_vertices);
-            let (cost1, cluster1) = best(&graph, order1.clone());
-            if cost1 < best_cost {
-                best_cost = cost1;
-                best_cluster = cluster1;
-            }
-        }
-        */
 
         // Commented out part for checking every non-assigned vertex (as in original Python code)
         /*
@@ -574,18 +604,26 @@ pub fn cluster_graph(mut matrix: Array2<f64>, verbose: bool, dist: usize, sample
         if best_cluster.is_empty() {
             break;
         } else {
-            if verbose {
-                println!("Cluster #{nb_clusters}: {:?} (size: {})", best_cluster, best_cluster.len());
-                println!("Cost: {best_cost}");
+            if verbose >= 1 {
+                println!("Cluster #{nb_clusters}: {:?}", best_cluster);
+                println!("Size: {}", best_cluster.len());
+                println!("Reduced Cost: {best_cost:.2}");
             }
 
             let mut nb_splits_cluster = 0;
+            let mut nb_deletions_cluster = 0;
 
             if best_cluster.len() == 1 {
                 for &v in &best_cluster {
                     for j in 0..n {
                         if matrix[[v,j]] > 0. {
                             c += matrix[[v,j]];
+                            nb_deletions += 1;
+                            deletions_cost += matrix[[v,j]];
+                            if verbose >= 1 {
+                                println!("del {v} {j} {:.2}", matrix[[v,j]]);
+                            }
+                            nb_deletions_cluster += 1;
                             remove_edge(&mut matrix, v, j);
                         }
                     }
@@ -594,41 +632,52 @@ pub fn cluster_graph(mut matrix: Array2<f64>, verbose: bool, dist: usize, sample
 
             for &v in &best_cluster {
                 assignation[v].push(nb_clusters);
-                // println!("check {v}");
 
+                // Compute the out degree
                 let mut d = 0.0;
                 for j in 0..n {
                     if matrix[[v,j]] > 0. && !best_cluster.contains(&j){
-                        // println!("{v} {j}");
                         d += matrix[[v,j]];
                     }
                 }
-                // println!("outdegree[{v}] = {d}");
 
                 if d > split_threshold {
                     // Split v
                     nb_splits_cluster += 1;
                     nb_splits += 1;
                     c += split_threshold; 
-                    // println!("spl {v}");
+                    if verbose >= 1 {
+                        println!("spl {v}");
+                    }
                     for j in best_cluster.iter() {
                         remove_edge(&mut matrix, v, *j)
                     }
                 } else {
                     // Delete out edges
-                    assigned.insert(v);
+                    unassigned.remove(&v);
                     for j in 0..n {
                         if !best_cluster.contains(&j) {
                             c += matrix[[v,j]];
-                            // println!("del {v} {j}");
+                            if matrix[[v,j]] > 0. {
+                                nb_deletions += 1;
+                                nb_deletions_cluster += 1;
+                                deletions_cost += matrix[[v,j]];
+                                if verbose >= 1 {
+                                    println!("del {v} {j} {:.2}", matrix[[v,j]]);
+                                }
+                            }
                         }
                         remove_edge(&mut matrix, v, j);
                     }
                 }
             }
 
-            println!("Nb splits: {nb_splits_cluster}/{}", best_cluster.len());
-            println!("Assigned: {}/{n}", assigned.len());
+            if verbose >= 1 {
+                println!("Nb splits: {nb_splits_cluster}");
+                println!("Nb deletions: {nb_deletions_cluster}");
+                println!("Unassigned vertices remaining: {}/{n}", unassigned.len());
+            }
+            
             
 
             nb_clusters += 1;
@@ -638,11 +687,10 @@ pub fn cluster_graph(mut matrix: Array2<f64>, verbose: bool, dist: usize, sample
 
     println!("Clustering ended successfully");
 
-    let nb_deletions =c - split_threshold*(nb_splits as f64);
 
     println!("# Parameters");
     println!("- Split threshold: {split_threshold}");
-    println!("- Markov power: {}", 4);
+    println!("- Markov power: {}", 16);
     println!("- Samples size: {samples_size}");
     println!("- Cluster size coef: {}", 1);
 
@@ -650,7 +698,8 @@ pub fn cluster_graph(mut matrix: Array2<f64>, verbose: bool, dist: usize, sample
     println!("- Nb clusters: {}", clusters.len());
     // println!("Nb_operations: {c}");
     println!("- Nb splits: {nb_splits}" );
-    println!("- Nb deletions: {nb_deletions:.0}",  );
+    println!("- Nb deletions: {nb_deletions}",  );
+    println!("- Deletions Cost: {deletions_cost:.3}",  );
     println!("- Overlapping: {:.3}", 1.+(nb_splits as f64)/(n as f64));
 
     clusters_size_stats(&clusters);
@@ -659,4 +708,81 @@ pub fn cluster_graph(mut matrix: Array2<f64>, verbose: bool, dist: usize, sample
 }
 
 
+
+
+
+
+pub fn run_cluster_solver() {
+
+    let program_args: Vec<String> = env::args().collect();
+
+    if program_args.len() < 2 {
+        eprintln!("Usage: {} cluster <data_path>", program_args[0]);
+        std::process::exit(1);
+    }
+
+    let mut split_threshold = 1.;
+    let mut verbose_level = 0;
+    let data_path = &program_args[2];
+    let mut samples_size = 10;
+    let mut ignore_weights = false;
+
+    println!("Data path: {}", data_path);
+
+    for arg in program_args.iter() {
+        if arg.starts_with("--split-threshold=") {
+            split_threshold = arg.split_at(18).1.parse::<f64>().unwrap_or(split_threshold);
+        }
+        if arg.starts_with("--verbose=") {
+            verbose_level = arg.split_at(10).1.parse::<usize>().unwrap_or(verbose_level);
+        }
+        if arg.starts_with("--samples-size=") {
+            samples_size = arg.split_at(15).1.parse::<usize>().unwrap_or(samples_size);
+        }
+
+        if arg.starts_with("--ignore-weights") {
+            ignore_weights = true;
+        }
+    }
+
+
+
+    
+    let (matrix, node_indices) = load_edges_file(&data_path, ' ', ignore_weights);
+
+
+    // Compute the reverse node map
+    let mut node_labels = HashMap::new();
+    for (key, value) in node_indices.iter() {
+        node_labels.insert(*value, key.clone());
+    }
+
+    // Compute the number of edges
+    let n = matrix.shape()[0];
+    let mut m = 0;
+    for i in 0..n {
+        for j in i+1..n{
+            if matrix[[i,j]] > 0. {
+                m += 1;
+            }
+        }
+    }
+
+    println!("n={n} m={m}");
+    println!("Start clustering...");
+    let clusters = cluster_graph(matrix, verbose_level, 2, samples_size, split_threshold);
+
+
+    
+    let results_path = data_path.to_string() + ".clusters";
+    let output_file = File::create(results_path).expect("Failed to create file");
+    let mut writer = BufWriter::new(output_file);
+
+    for cluster in &clusters {
+        for v in cluster {
+            write!(writer, "{} ", node_labels.get(v).unwrap()).expect("Failed to write to file");
+        }
+        writeln!(writer).expect("Failed to write end-of-line to file");
+    }
+}
 

@@ -2,21 +2,17 @@ pub mod biclusters;
 pub mod common;
 pub mod clustering;
 
-use std::collections::HashMap;
 use std::path::Path;
 use std::time::{Instant};
 use std::{env, fs::File, process::Command};
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::io::{BufRead, BufReader, Write};
 
-use biclusters::algo::load_wadj_from_matrix;
 use biclusters::algo_two_sided::{analyze_ground_biclusters, bicluster_two_sided};
-use biclusters::{algo::{bicluster, load_wadj_from_csv, print_wadj_stats}, biclustering::Biclustering, weighted_biadj::WeightedBiAdjacency, r_results::load_r_biclusters};
-use cluster_algo::load_adj_list_file;
-use cluster_algo::load_edges_file;
+use biclusters::{algo::{bicluster_one_sided},  weighted_biadj::WeightedBiAdjacency, r_results::load_r_biclusters};
 use rand::Rng;
 use walkdir::WalkDir;
 
-use crate::clustering::cluster_algo::{self, cluster_graph};
+use crate::clustering::cluster_algo::{run_cluster_solver};
 
 struct Args {
     size: f64,
@@ -168,7 +164,7 @@ fn run_comparison(){
         
         // Clustiflor
         let start_time = Instant::now();
-        let (clusti_biclusters, clusti_stats) = bicluster(&mut wadj, 1., 1., 3, 0);
+        let (clusti_biclusters, clusti_stats) = bicluster_one_sided(&mut wadj, 1., 1., 3, 0);
         let clustiflor_dur = start_time.elapsed();
         let (labels_a, labels_b, nodes_a_map, nodes_b_map) = wadj.get_labels();
         // biclusters.print_stats(1., 1., 3, &labels_a, &labels_b, Some(&"yo.biclusters"));
@@ -219,7 +215,7 @@ fn run_comparison(){
 
 
 
-fn run_solver(){
+fn run_bicluster_one_sided(){
 
     let program_args: Vec<String> = env::args().collect();
 
@@ -245,21 +241,19 @@ fn run_solver(){
 
 
     if program_args.len() < 3 {
-        eprintln!("Usage: {} <file_path> <delimiter> --split-th=<number >= 1.>", program_args[0]);
+        eprintln!("Usage: {} bicluster <file_path> --split-th=<number >= 1.>", program_args[0]);
         std::process::exit(1);
     }
 
-    let file_path = &program_args[1];
-    let delimiter = &program_args[2];
+    let file_path = &program_args[2];
 
     println!("File path: {}", file_path);
-    println!("Delimiter: {}", delimiter);
 
     if args.matrix {
-        let wadj =  load_wadj_from_matrix(file_path);
-        print_wadj_stats(&wadj, wadj.get_n(), wadj.get_m());
+        let wadj =  WeightedBiAdjacency::load_wadj_from_matrix(file_path);
+        wadj.print_wadj_stats();
         let mut wadj2 = wadj.clone();
-        let (biclusters, algo_stats) = bicluster(&mut wadj2, args.size, args.split, args.power, args.verbose);
+        let (biclusters, algo_stats) = bicluster_one_sided(&mut wadj2, args.size, args.split, args.power, args.verbose);
         let results_path = file_path.to_string() + ".biclusters";
         let mut labels_a = vec![];
         let mut labels_b = vec![];
@@ -269,30 +263,27 @@ fn run_solver(){
         for j in 0..wadj.get_m() {
             labels_b.push(format!("c{j}"));
         }
-        biclusters.print_stats(args.size, args.split, args.power, &labels_a, &labels_b, Some(&results_path), algo_stats);
+        biclusters.print_stats(args.size, args.split, args.power, &wadj, Some(&results_path), algo_stats);
 
 
     } else {
-        match load_wadj_from_csv(file_path, delimiter, args.split_rows) {
-            (wadj, n, m, labels_a, labels_b, node_map_a, node_map_b) => {
-                print_wadj_stats(&wadj, n, m);
-                let mut wadj2 = wadj.clone();
-                let (biclusters, algo_stats) = bicluster(&mut wadj2, args.size, args.split, args.power, args.verbose);
-                let results_path = file_path.to_string() + ".biclusters";
-                biclusters.print_stats(args.size, args.split, args.power, &labels_a, &labels_b, Some(&results_path), algo_stats);
-    
+        let wadj =  WeightedBiAdjacency::load_wadj_from_csv(file_path, " ", args.split_rows);
+        wadj.print_wadj_stats();
+        let mut wadj2 = wadj.clone();
+        let (biclusters, algo_stats) = bicluster_one_sided(&mut wadj2, args.size, args.split, args.power, args.verbose);
+        let results_path = file_path.to_string() + ".biclusters";
+        biclusters.print_stats(args.size, args.split, args.power, &wadj, Some(&results_path), algo_stats);
+
+
+        
+        // let r = load_r_biclusters( "results.txt", &node_map_a, &node_map_b);
+        // for biclust in r.iter() {
+        //     println!("{biclust:?}");
+        // }
+
+        // println!("{:?} {}", compute_nb_unclustered(&r, n, m), compute_edition_diff(&r, &wadj, n, m));
     
                 
-                // let r = load_r_biclusters( "results.txt", &node_map_a, &node_map_b);
-                // for biclust in r.iter() {
-                //     println!("{biclust:?}");
-                // }
-    
-                // println!("{:?} {}", compute_nb_unclustered(&r, n, m), compute_edition_diff(&r, &wadj, n, m));
-    
-                
-            }
-        }
     }
 
     
@@ -379,8 +370,8 @@ fn process_directory(dir_path: &str, args: &Args) {
         let file_path = entry.path();
         println!("Processing file: {:?}", file_path);
         
-        let wadj = load_wadj_from_matrix(file_path.to_str().unwrap());
-        print_wadj_stats(&wadj, wadj.get_n(), wadj.get_m());
+        let wadj = WeightedBiAdjacency::load_wadj_from_matrix(file_path.to_str().unwrap());
+        wadj.print_wadj_stats();
         
         if let Some(bc) =wadj.get_ground_truth(){
             println!("{:?}", bc.biclusters());
@@ -409,10 +400,10 @@ fn process_directory(dir_path: &str, args: &Args) {
 fn process_single_file(file_path: &str, args: &Args) {
     println!("Processing single file: {}", file_path);
     
-    let wadj = load_wadj_from_matrix(file_path);
-    print_wadj_stats(&wadj, wadj.get_n(), wadj.get_m());
+    let wadj = WeightedBiAdjacency::load_wadj_from_matrix(file_path);
+    wadj.print_wadj_stats();
 
-    if let Some(bc) =wadj.get_ground_truth(){
+    if let Some(bc) = wadj.get_ground_truth(){
         println!("{:?}", bc.biclusters());
     }
     
@@ -439,89 +430,50 @@ fn process_single_file(file_path: &str, args: &Args) {
 
 
 
-fn run_cluster_solver() {
-
-    let program_args: Vec<String> = env::args().collect();
-
-    if program_args.len() < 2 {
-        eprintln!("Usage: {} <data_path>", program_args[0]);
-        std::process::exit(1);
-    }
-
-    let mut split_threshold = 1.;
-    let mut verbose_level = 0;
-    let data_path = &program_args[1];
-    let mut samples_size = 10;
-    let mut ignore_weights = false;
-
-    println!("Data path: {}", data_path);
-
-    for arg in program_args.iter() {
-        if arg.starts_with("--split-threshold=") {
-            split_threshold = arg.split_at(18).1.parse::<f64>().unwrap_or(split_threshold);
-        }
-        if arg.starts_with("--verbose=") {
-            verbose_level = arg.split_at(10).1.parse::<usize>().unwrap_or(verbose_level);
-        }
-        if arg.starts_with("--samples-size=") {
-            samples_size = arg.split_at(15).1.parse::<usize>().unwrap_or(samples_size);
-        }
-
-        if arg.starts_with("--ignore-weights") {
-            ignore_weights = true;
-        }
-    }
-
-
-
-    
-    let (matrix, node_indices) = load_edges_file(&data_path, ' ', ignore_weights);
-
-
-    // Compute the reverse node map
-    let mut node_labels = HashMap::new();
-    for (key, value) in node_indices.iter() {
-        node_labels.insert(*value, key.clone());
-    }
-
-    // Compute the number of edges
-    let n = matrix.shape()[0];
-    let mut m = 0;
-    for i in 0..n {
-        for j in i+1..n{
-            if matrix[[i,j]] > 0. {
-                m += 1;
-            }
-        }
-    }
-
-    println!("n={n} m={m}");
-    println!("Start clustering...");
-    let clusters = cluster_graph(matrix, true, 2, samples_size, split_threshold);
-
-
-    
-    let results_path = data_path.to_string() + ".clusters";
-    let output_file = File::create(results_path).expect("Failed to create file");
-    let mut writer = BufWriter::new(output_file);
-
-    for cluster in &clusters {
-        for v in cluster {
-            write!(writer, "{} ", node_labels.get(v).unwrap()).expect("Failed to write to file");
-        }
-        writeln!(writer).expect("Failed to write end-of-line to file");
-    }
-}
 
 
 
 
 fn main() {
 
-    run_cluster_solver();
+    let program_args: Vec<String> = env::args().collect();
+
+    if program_args.len() >= 2 && program_args[1] == "help" {
+        println!("--- Clustiflor ---");
+        println!("Usage: {} cluster|bicluster <data_path>", program_args[0]);
+
+        println!("Cluster options:");
+        println!("--verbose=<integer>");
+        println!("--split-threhold=<>");
+        println!("--samples-size=<>");
+        println!("--ignore-weights");
+
+
+        println!("Bicluster options:");
+        println!("--split-cols split only on columns (this will transpose the data)");
+        println!("--size-sensitivity=<float number in [0,1]>");
+        println!("--split-th=<float number >= 1.0>");
+
+
+        return;
+    }
+
+    if program_args.len() < 3 || !(program_args[1] == "cluster" || program_args[1] == "bicluster") {
+        eprintln!("Usage: {} cluster|bicluster <data_path>", program_args[0]);
+        std::process::exit(1);
+    }
+
+    if program_args[1] == "cluster" {
+        run_cluster_solver();
+    }
+    else if program_args[1] == "bicluster" {
+        run_bicluster_one_sided();
+    }
+
+
     return;
 
-    run_bicluster_solver();
+    // run_bicluster_solver();
     
     // gen_batch_v2(1);
     

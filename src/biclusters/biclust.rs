@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::fmt;
 use std::{collections::HashSet, fs::File};
 use std::io::{BufRead, BufReader, Write};
+use crate::biclusters::weighted_biadj::WeightedBiAdjacency;
+
 use super::algo::AlgoStats;
-use super::biclustering::Biclustering;
 
 #[derive(Clone)]
 /// Rows are indiced from 0 to (n-1).
@@ -25,6 +25,52 @@ pub struct Biclust {
 }
 
 impl Biclust {
+    pub fn rows(&self) -> usize {
+        self.n
+    }
+
+    pub fn cols(&self) -> usize {
+        self.m
+    }
+
+    pub fn biclusters(&self) -> Vec<Vec<usize>> {
+        self.biclusters.clone()
+    }
+
+    pub fn unclustered_rows(&self) -> Vec<usize> {
+        let mut r = vec![];
+        for (i,x) in self.rows_memberships.iter().enumerate() {
+            if x.len() == 0 {
+                r.push(i);
+            }
+        }
+        r
+    }
+
+    pub fn unclustered_cols(&self) -> Vec<usize> {
+        let mut r = vec![];
+        for (i,x) in self.cols_memberships.iter().enumerate() {
+            if x.len() == 0 {
+                r.push(i);
+            }
+        }
+        r
+    }
+
+    pub fn add_bicluster(&mut self, bicluster: Vec<usize>) {
+        let bicluster_id = self.biclusters.len();
+        for &x in bicluster.iter() {
+            if x < self.n {
+                self.rows_memberships[x].push(bicluster_id);
+            }
+            else {
+                self.cols_memberships[x-self.n].push(bicluster_id);
+            }
+        }
+        self.biclusters.push(bicluster.clone());
+    }
+
+
     pub fn new(n: usize, m: usize) -> Self {
         Biclust {
             n,
@@ -439,8 +485,7 @@ impl Biclust {
         size_sensivity: f64, 
         split_threshold: f64, 
         markov_power: usize,
-        labels_a: &Vec<String>, 
-        labels_b: &Vec<String>, 
+        wadj: &WeightedBiAdjacency, 
         file_path: Option<&str>,
         algo_stats: AlgoStats) {
         
@@ -454,8 +499,8 @@ impl Biclust {
         let mut file = File::create(&file_name).expect("Failed to open file");
 
         writeln!(file, "# Bipartite graphs statistics").unwrap();
-        writeln!(file, "- Size of A (nb rows): {}", self.n).unwrap();
-        writeln!(file, "- Size of B (nb cols): {}", self.m).unwrap();
+        writeln!(file, "- Number of rows: {}", self.n).unwrap();
+        writeln!(file, "- Number of cols: {}", self.m).unwrap();
         
         writeln!(file, "\n# Hyperparameters").unwrap();
         writeln!(file, "- size sensivity: {size_sensivity}").unwrap();
@@ -463,29 +508,46 @@ impl Biclust {
         writeln!(file, "- markov power: {markov_power}").unwrap();
         
         writeln!(file, "\n# Results").unwrap();
-        writeln!(file, "- Adjusted erros: {:.3}", algo_stats.adjusted_error).unwrap();
-        writeln!(file, "- Nb isolated A vertices (rows): {}", self.nb_isolated_a()).unwrap();
-        writeln!(file, "- Nb isolated B vertices (cols): {}", self.nb_isolated_b()).unwrap();
+        writeln!(file, "- Adjusted errors ratio: {:.3}", algo_stats.adjusted_error).unwrap();
+        writeln!(file, "- Nb isolated rows: {}", self.nb_isolated_a()).unwrap();
+        writeln!(file, "- Nb isolated cols: {}", self.nb_isolated_b()).unwrap();
         writeln!(file, "- Nb operations: {:.3}", algo_stats.nb_operations).unwrap();
         writeln!(file, "- Nb splits: {}", algo_stats.nb_splits).unwrap();
         writeln!(file, "- Nb additions: {:.3}", algo_stats.nb_additions).unwrap();
         writeln!(file, "- Nb deletions: {:.3}", algo_stats.nb_deletions).unwrap();
 
         writeln!(file, "- Number of biclusters: {}", self.biclusters.len()).unwrap();
-        writeln!(file, "- A Overlapping: {:.3}", self.get_rows_overlapping()).unwrap();
+        writeln!(file, "- Row Overlapping: {:.3}", self.get_rows_overlapping()).unwrap();
 
         writeln!(file, "").unwrap();
-        writeln!(file, "# Clusters\n").unwrap();
+
+        writeln!(file, "# Columns Partition\n").unwrap();
 
         for bicluster in self.biclusters.iter() {
             for &x in bicluster {
-                if x < self.n {
-                    write!(file, "{} ", labels_a[x]).unwrap();
-                } else {
-                    write!(file, "{} ", labels_b[x-self.n]).unwrap();
+                if x >= self.n {
+                    write!(file, "{} ", wadj.get_label(x)).unwrap();
                 }
             }
-            writeln!(file, "").unwrap();
+            writeln!(file, "\n").unwrap();
+        }
+
+        writeln!(file, "# Biclusters\n").unwrap();
+
+        for bicluster in self.biclusters.iter() {
+            for &x in bicluster {
+                write!(file, "{} ", wadj.get_label(x)).unwrap();
+            }
+            writeln!(file, "\n").unwrap();
+        }
+
+        writeln!(file, "\n# Bicluster memberships\n").unwrap();
+
+        for row in 0..self.n {
+            writeln!(file, "Row {row} {}: {:?}", wadj.get_label(row), self.rows_memberships[row]).unwrap();
+        }
+        for col in 0..self.m {
+            writeln!(file, "Col {col} {}: {:?}", wadj.get_label(self.n+col), self.cols_memberships[col]).unwrap();
         }
         println!("Biclusters printed to {}", file_name);
 
@@ -565,53 +627,6 @@ fn jaccard_index(a: &Vec<usize>, b: &Vec<usize>) -> f64 {
 
 
 
-impl Biclustering for Biclust {
-    fn rows(&self) -> usize {
-        self.n
-    }
-
-    fn cols(&self) -> usize {
-        self.m
-    }
-
-    fn biclusters(&self) -> Vec<Vec<usize>> {
-        self.biclusters.clone()
-    }
-
-    fn unclustered_rows(&self) -> Vec<usize> {
-        let mut r = vec![];
-        for (i,x) in self.rows_memberships.iter().enumerate() {
-            if x.len() == 0 {
-                r.push(i);
-            }
-        }
-        r
-    }
-
-    fn unclustered_cols(&self) -> Vec<usize> {
-        let mut r = vec![];
-        for (i,x) in self.cols_memberships.iter().enumerate() {
-            if x.len() == 0 {
-                r.push(i);
-            }
-        }
-        r
-    }
-
-    fn add_bicluster(&mut self, bicluster: Vec<usize>) {
-        let bicluster_id = self.biclusters.len();
-        for &x in bicluster.iter() {
-            if x < self.n {
-                self.rows_memberships[x].push(bicluster_id);
-            }
-            else {
-                self.cols_memberships[x-self.n].push(bicluster_id);
-            }
-        }
-        self.biclusters.push(bicluster.clone());
-    }
-
-}
 
 
 
