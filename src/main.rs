@@ -9,32 +9,15 @@ use std::io::{BufRead, BufReader, Write};
 
 use biclusters::algo_two_sided::{analyze_ground_biclusters, bicluster_two_sided};
 use biclusters::{algo::{bicluster_one_sided},  weighted_biadj::WeightedBiAdjacency, r_results::load_r_biclusters};
+
+use clap::Parser;
 use rand::Rng;
 use walkdir::WalkDir;
 
 use crate::clustering::cluster_algo::{run_cluster_solver};
+use crate::common::{print_error, Cli};
 
-struct Args {
-    size: f64,
-    split: f64,
-    power: usize,
-    split_rows: bool,
-    verbose: usize,
-    matrix: bool
-}
 
-impl Default for Args {
-    fn default() -> Self {
-        Args {
-            size: 1.0,
-            split: 1.0,
-            power: 3,
-            split_rows: true,
-            verbose: 0,
-            matrix: false
-        }
-    }
-}
 
 fn gen_batch_v2(batch_size: usize){
     let base_name = "bigraphs/synth/batch2";
@@ -215,46 +198,14 @@ fn run_comparison(){
 
 
 
-fn run_bicluster_one_sided(){
+fn run_bicluster_one_sided(cli: Cli){
 
-    let program_args: Vec<String> = env::args().collect();
-
-    let mut args = Args::default();
-
-
-    for arg in program_args.iter() {
-        if arg.starts_with("--size-sensitivity") {
-            args.size = arg.split_at(19).1.parse::<f64>().unwrap_or(args.size);
-        } else if arg.starts_with("--split-th") {
-            args.split = arg.split_at(11).1.parse::<f64>().unwrap_or(args.split);
-            println!("split {}", args.split);
-        } else if arg.starts_with("--power") {
-            args.power = arg.split_at(8).1.parse::<usize>().unwrap_or(args.power);
-        } else if arg.starts_with("--verbose") {
-            args.verbose = arg.split_at(10).1.parse::<usize>().unwrap_or(args.verbose);
-        } else if arg.starts_with("--split-cols") {
-            args.split_rows = false;
-        } else if arg.starts_with("--matrix") {
-            args.matrix = true;
-        }
-    }
-
-
-    if program_args.len() < 3 {
-        eprintln!("Usage: {} bicluster <file_path> --split-th=<number >= 1.>", program_args[0]);
-        std::process::exit(1);
-    }
-
-    let file_path = &program_args[2];
-
-    println!("File path: {}", file_path);
-
-    if args.matrix {
-        let wadj =  WeightedBiAdjacency::load_wadj_from_matrix(file_path);
+    if cli.matrix_format {
+        let wadj =  WeightedBiAdjacency::load_wadj_from_matrix(&cli.data_path);
         wadj.print_wadj_stats();
         let mut wadj2 = wadj.clone();
-        let (biclusters, algo_stats) = bicluster_one_sided(&mut wadj2, args.size, args.split, args.power, args.verbose);
-        let results_path = file_path.to_string() + ".biclusters";
+        let (biclusters, algo_stats) = bicluster_one_sided(&mut wadj2, cli.size_sensitivity, cli.split_threshold, cli.matrix_power, cli.verbose);
+        let results_path = cli.data_path.to_string() + ".biclusters";
         let mut labels_a = vec![];
         let mut labels_b = vec![];
         for line in 0..wadj.get_n() {
@@ -263,16 +214,16 @@ fn run_bicluster_one_sided(){
         for j in 0..wadj.get_m() {
             labels_b.push(format!("c{j}"));
         }
-        biclusters.print_stats(args.size, args.split, args.power, &wadj, Some(&results_path), algo_stats);
+        biclusters.print_stats(cli.size_sensitivity, cli.split_threshold, cli.matrix_power, &wadj, Some(&results_path), algo_stats);
 
 
     } else {
-        let wadj =  WeightedBiAdjacency::load_wadj_from_csv(file_path, " ", args.split_rows);
+        let wadj =  WeightedBiAdjacency::load_wadj_from_csv(&cli.data_path, " ", cli.split_rows);
         wadj.print_wadj_stats();
         let mut wadj2 = wadj.clone();
-        let (biclusters, algo_stats) = bicluster_one_sided(&mut wadj2, args.size, args.split, args.power, args.verbose);
-        let results_path = file_path.to_string() + ".biclusters";
-        biclusters.print_stats(args.size, args.split, args.power, &wadj, Some(&results_path), algo_stats);
+        let (biclusters, algo_stats) = bicluster_one_sided(&mut wadj2, cli.size_sensitivity, cli.split_threshold, cli.matrix_power, cli.verbose);
+        let results_path = cli.data_path.to_string() + ".biclusters";
+        biclusters.print_stats(cli.size_sensitivity, cli.split_threshold, cli.matrix_power, &wadj, Some(&results_path), algo_stats);
 
 
         
@@ -294,50 +245,23 @@ fn run_bicluster_one_sided(){
 
 
 
-fn run_bicluster_solver(){
-
-    let program_args: Vec<String> = env::args().collect();
-
-    let mut args = Args::default();
-
-
-    for arg in program_args.iter() {
-        if arg.starts_with("--size-sensitivity") {
-            args.size = arg.split_at(19).1.parse::<f64>().unwrap_or(args.size);
-        } else if arg.starts_with("--split-th") {
-            args.split = arg.split_at(11).1.parse::<f64>().unwrap_or(args.split);
-            println!("split {}", args.split);
-        } else if arg.starts_with("--power") {
-            args.power = arg.split_at(8).1.parse::<usize>().unwrap_or(args.power);
-        } else if arg.starts_with("--verbose") {
-            args.verbose = arg.split_at(10).1.parse::<usize>().unwrap_or(args.verbose);
-        }
-    }
-
-
-    if program_args.len() < 2 {
-        eprintln!("Usage: {} <data_path> --split-th=<number >= 1.>", program_args[0]);
-        std::process::exit(1);
-    }
-
-    let data_path = &program_args[1];
-
-    println!("Data path: {}", data_path);
+fn run_bicluster_solver(cli: Cli){
+    println!("Data path: {}", cli.data_path);
 
 
     // Check if path exists
-    let path = Path::new(data_path);
+    let path = Path::new(&cli.data_path);
     if !path.exists() {
-        eprintln!("Error: Path '{}' does not exist", data_path);
+        eprintln!("Error: Path '{}' does not exist", cli.data_path);
         std::process::exit(1);
     }
     
     // Handle directory case
     if path.is_dir() {
-        process_directory(data_path, &args);
+        process_directory(&cli.data_path.clone(), cli);
     } else {
         // Handle single file case
-        process_single_file(data_path, &args);
+        process_single_file(&cli.data_path.clone(), cli);
     }
 
 
@@ -356,7 +280,7 @@ fn run_bicluster_solver(){
 
 
 
-fn process_directory(dir_path: &str, args: &Args) {
+fn process_directory(dir_path: &str, cli: Cli) {
     println!("Processing directory: {}", dir_path);
     
     for entry in WalkDir::new(dir_path)
@@ -380,10 +304,10 @@ fn process_directory(dir_path: &str, args: &Args) {
         let mut wadj2 = wadj.clone();
         let (biclusters, algo_stats) = bicluster_two_sided(
             &mut wadj2, 
-            1., 
-            1., 
-            args.power, 
-            args.verbose
+            cli.size_sensitivity, 
+            cli.split_threshold, 
+            cli.matrix_power, 
+            cli.verbose
         );
 
         if let Some(ground_biclusters) = wadj.get_ground_truth(){
@@ -397,7 +321,7 @@ fn process_directory(dir_path: &str, args: &Args) {
     }
 }
 
-fn process_single_file(file_path: &str, args: &Args) {
+fn process_single_file(file_path: &str, cli: Cli) {
     println!("Processing single file: {}", file_path);
     
     let wadj = WeightedBiAdjacency::load_wadj_from_matrix(file_path);
@@ -410,10 +334,10 @@ fn process_single_file(file_path: &str, args: &Args) {
     let mut wadj2 = wadj.clone();
     let (biclusters, algo_stats) = bicluster_two_sided(
         &mut wadj2, 
-        1.0, 
-        args.split, 
-        args.power, 
-        args.verbose
+        cli.size_sensitivity, 
+        cli.split_threshold, 
+       cli.matrix_power, 
+        cli.verbose
     );
 
     if let Some(ground_biclusters) = wadj.get_ground_truth(){
@@ -434,40 +358,48 @@ fn process_single_file(file_path: &str, args: &Args) {
 
 
 
+
+
+
 fn main() {
 
-    let program_args: Vec<String> = env::args().collect();
-
-    if program_args.len() >= 2 && program_args[1] == "help" {
-        println!("--- Clustiflor ---");
-        println!("Usage: {} cluster|bicluster <data_path>", program_args[0]);
-
-        println!("Cluster options:");
-        println!("--verbose=<integer>");
-        println!("--split-threhold=<>");
-        println!("--samples-size=<>");
-        println!("--ignore-weights");
 
 
-        println!("Bicluster options:");
-        println!("--split-cols split only on columns (this will transpose the data)");
-        println!("--size-sensitivity=<float number in [0,1]>");
-        println!("--split-th=<float number >= 1.0>");
-
-
-        return;
+    let cli = Cli::parse();
+    
+    match cli.cluster_type.as_str() {
+        "cluster" | "bicluster" | "onesided-bicluster" => {
+        }
+        _ => {
+            print_error("Invalid cluster type. Must be one of: cluster, bicluster, or onesided-bicluster");
+        }
     }
 
-    if program_args.len() < 3 || !(program_args[1] == "cluster" || program_args[1] == "bicluster") {
-        eprintln!("Usage: {} cluster|bicluster <data_path>", program_args[0]);
+
+    // Check if path exists
+    let path = Path::new(&cli.data_path);
+    if !path.exists() {
+        eprintln!("Error: Path '{}' does not exist", &cli.data_path);
         std::process::exit(1);
     }
 
-    if program_args[1] == "cluster" {
-        run_cluster_solver();
+    // Check parameters validity
+    if cli.size_sensitivity > 1.0 || cli.size_sensitivity < 0.0 {
+        print_error("Size sensitivity must be in [0,1]");
     }
-    else if program_args[1] == "bicluster" {
-        run_bicluster_one_sided();
+    if cli.split_threshold < 1.0  {
+        print_error("Split threshold must be in [1,+oo[");
+    }
+
+
+    if cli.cluster_type == "cluster" {
+        run_cluster_solver(cli);
+    }
+    else if cli.cluster_type == "onesided-bicluster" {
+        run_bicluster_one_sided(cli);
+    }
+    else if cli.cluster_type == "bicluster" {
+        run_bicluster_solver(cli);
     }
 
 

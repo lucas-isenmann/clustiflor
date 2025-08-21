@@ -4,8 +4,6 @@ Clustering of graphs and biclustering of bipartite graphs algorithms with overla
 
 
 
-## Usage
-
 
 ## Clustering
 
@@ -21,12 +19,16 @@ Edge data files should be in the following format:
     # by default weight is 1
     # use --ignore-weights to ignore weights
 
-Hyperparameters:
 
-    --split-threshold=1 (float >= 1., default value: 1)
-    --samples-size=10 (integer, default value: 10)
-    --ignore-weights to ignore weights when loading a file
-    --verbose=? (integer, default value: 0)
+Or in the format:
+
+    n m
+    0 1
+    0 2
+    1 2
+
+where n is the number of vertices and m is the number of edges
+
 
 Launch
 
@@ -52,10 +54,14 @@ Data files should be in the following format:
 Only labels on the left can be split.
 
 
-Hyperparameters:
+## Options
 
-    --cost=1 should be in [0,1] (default value: 1)
-    --split=1 should be >= 1 (default value: 1)
+
+    --size-sensitivity=1 should be in [0,1] (default value: 1)
+    --split-threshold=1 should be >= 1 (default value: 1)
+    --samples-size=10 (integer, default value: 10)
+    --ignore-weights to ignore weights when loading a file
+    --verbose=? (integer, default value: 0)
 
 
 Launch

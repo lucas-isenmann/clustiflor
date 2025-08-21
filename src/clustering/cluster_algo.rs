@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use rand::{seq::SliceRandom, thread_rng};
 use std::time::{Instant};
 
-use crate::common::{approx_statio_distrib_by_indegree, compute_statio_distrib_by_exp, compute_statio_distrib_by_iter, compute_statio_distrib_by_pivot, dist, print_matrix, progress_bar};
+use crate::common::{approx_statio_distrib_by_indegree, compute_statio_distrib_by_exp, compute_statio_distrib_by_iter, compute_statio_distrib_by_pivot, dist, print_matrix, progress_bar, Cli};
 
 
 
@@ -73,31 +73,47 @@ pub fn load_adj_list_file(file_name: &str, delimiter: char) -> (Array2<f64>, Has
 /// 1 2
 /// 2 0
 /// ```
-pub fn load_edges_file(file_name: &str, delimiter: char, ignore_weights: bool) -> (Array2<f64>, HashMap<String, usize>) {
+pub fn load_edges_file(file_name: &str, delimiter: char, ignore_weights: bool, ignore_first_line: bool) -> (Array2<f64>, HashMap<String, usize>) {
+    if ignore_first_line {
+        println!("Parsing file as classic format (first line: n m)");
+    } else {
+        println!("Parsing file as easy format (not ignoring first line)")
+    }
     let reader = BufReader::new(File::open(file_name).expect("Failed to open file"));
     let lines = reader.lines();
 
     let mut data: Vec<(usize, usize, f64)> = Vec::new();
-    let mut node_map = std::collections::HashMap::<String, usize>::new();
+    let mut node_map = HashMap::<String, usize>::new();
+    let mut labels = Vec::new();
     let mut n = 0;
+    let mut nb_lines = 0;
 
-    // Read nodes and edges
     for line in lines {
         if let Ok(line) = line {
+            nb_lines += 1;
             if line.starts_with("#"){
                 continue;
             }
+
             let values: Vec<&str> = line.split(delimiter).collect();
             if values.len() >= 2 {
+                if nb_lines == 1{
+                    if ignore_first_line {
+                        continue;
+                    }
+                }
+
                 let node1 = String::from(values[0]);
                 let node2 = String::from(values[1]);
 
                 // Add both nodes to the map if not already present
                 if !node_map.contains_key(&node1) {
+                    labels.push(node1.clone());
                     node_map.insert(node1.clone(), n);
                     n += 1;
                 }
                 if !node_map.contains_key(&node2) {
+                    labels.push(node2.clone());
                     node_map.insert(node2.clone(), n);
                     n += 1;
                 }
@@ -115,12 +131,29 @@ pub fn load_edges_file(file_name: &str, delimiter: char, ignore_weights: bool) -
                 }
                 if weight > 0. {
                     data.push((*n1, *n2, weight));
-
                 }
-                // println!("{:?} {ignore_weights}", data.last());
             }
         }
     }
+
+
+    // if ignore_first_line == false {
+    //     let n_faisal_format = &labels[data[0].0].parse::<usize>();
+    //     let m_faisal_format = &labels[data[0].1].parse::<usize>();
+
+    //     match (n_faisal_format, m_faisal_format) {
+    //         (Ok(n1), Ok(n2)) => {
+
+    //             if n2+1 == nb_lines{
+    //                 println!("Classic format detected");
+    //                 return load_edges_file(file_name, delimiter, ignore_weights, true)
+    //             }
+    //         },
+    //         _ => {
+    //         }
+    //     }
+    // }
+
 
     // Create adjacency matrix
     let mut adj_matrix = Array2::zeros((n, n));
@@ -129,6 +162,22 @@ pub fn load_edges_file(file_name: &str, delimiter: char, ignore_weights: bool) -
         adj_matrix[[u,v]] = weight;
         adj_matrix[[v,u]] = weight;
     }
+
+    let mut nb_isolated = 0;
+    for u in 0..n {
+        let mut is_isolated = true;
+        for v in 0..n {
+            if adj_matrix[[u,v]] > 0.0 {
+                is_isolated = false;
+                break;
+            }
+        }
+        if is_isolated {
+            nb_isolated += 1;
+        }
+    }
+
+    println!("Nb isolated vertices: {nb_isolated}");
 
     (adj_matrix, node_map)
 }
@@ -209,7 +258,8 @@ fn compute_transition_matrix(matrix: &Array2<f64>, n: usize) -> Array2<f64> {
 
 
 
-fn best(matrix: &Array2<f64>, order: &Vec<(usize, f64)>, split_threshold: f64, verbose: usize) -> (f64, Vec<usize>) {
+fn best(matrix: &Array2<f64>, order: &Vec<(usize, f64)>, split_threshold: f64, verbose: usize
+    , size_sensitivity: f64) -> (f64, Vec<usize>) {
     let n = matrix.shape()[0];
     let mut best_weight = std::f64::INFINITY;
     let mut best_cluster = Vec::new();
@@ -303,7 +353,7 @@ fn best(matrix: &Array2<f64>, order: &Vec<(usize, f64)>, split_threshold: f64, v
             if verbose >= 2{
                 println!("cluster: {cluster:?} cost: {c}");
             }
-            let cost = c* (cluster.len() as f64).powf(-1.0);
+            let cost = c* (cluster.len() as f64).powf(-size_sensitivity);
             if cost == 0.0 {
                 return (cost, cluster);
             }
@@ -438,11 +488,6 @@ fn clusters_size_stats(clusters: &Vec<Vec<usize>>) {
 
     sorted_vectors.sort_by_key(|v| -((*v).len() as i32));
 
-    // println!("Lengths of inner vectors in descending order:");
-    // for v in &sorted_vectors {
-    //     println!("{}", v.len());
-    // }
-
     // Calculate the average length
     let total_length: usize = sorted_vectors.iter().map(|v| v.len()).sum();
     let average_length = total_length as f64 / clusters.len() as f64;
@@ -450,9 +495,9 @@ fn clusters_size_stats(clusters: &Vec<Vec<usize>>) {
     println!("# Clusters size distribution");
     println!("- Average size: {:.2}", average_length);
     println!("- Max size: {}", sorted_vectors[0].len());
-    // println!("- Second max size: {}", sorted_vectors[1].len());
-    // println!("- Third max size: {}", sorted_vectors[2].len());
+    println!("- 10 maximal sizes: {:?}", sorted_vectors.iter().take(10).map( |x|  x.len()).collect::<Vec<usize>>());
     println!("- Min size: {}", sorted_vectors[sorted_vectors.len()-1].len());
+    println!("- Nb clusters of size 1: {:?}", sorted_vectors.iter().filter(|x| x.len() == 1).count())
 }
 
 
@@ -475,7 +520,12 @@ fn clusters_size_stats(clusters: &Vec<Vec<usize>>) {
 ///
 /// ```
 
-pub fn cluster_graph(mut matrix: Array2<f64>, verbose: usize, dist: usize, samples_size: usize, split_threshold: f64) -> Vec<Vec<usize>> {
+pub fn cluster_graph(mut matrix: Array2<f64>, 
+    verbose: usize, 
+    dist: usize, 
+    samples_size: usize, 
+    split_threshold: f64,
+    size_sensitivity: f64) -> Vec<Vec<usize>> {
 
     let mut rng = thread_rng();
 
@@ -570,7 +620,7 @@ pub fn cluster_graph(mut matrix: Array2<f64>, verbose: usize, dist: usize, sampl
 
             let order: Vec<(usize, f64)> = compute_order(&neighbors, v, &tm, verbose);
 
-            let (cost, cluster) = best(&matrix, &order, split_threshold, verbose);
+            let (cost, cluster) = best(&matrix, &order, split_threshold, verbose, size_sensitivity);
 
             if cost < best_cost {
                 best_cost = cost;
@@ -689,10 +739,10 @@ pub fn cluster_graph(mut matrix: Array2<f64>, verbose: usize, dist: usize, sampl
 
 
     println!("# Parameters");
+    println!("- Size sensitivity: {size_sensitivity}");
     println!("- Split threshold: {split_threshold}");
-    println!("- Markov power: {}", 16);
     println!("- Samples size: {samples_size}");
-    println!("- Cluster size coef: {}", 1);
+    println!("- Markov power: {}", 16);
 
     println!("# Results");
     println!("- Nb clusters: {}", clusters.len());
@@ -712,43 +762,11 @@ pub fn cluster_graph(mut matrix: Array2<f64>, verbose: usize, dist: usize, sampl
 
 
 
-pub fn run_cluster_solver() {
-
-    let program_args: Vec<String> = env::args().collect();
-
-    if program_args.len() < 2 {
-        eprintln!("Usage: {} cluster <data_path>", program_args[0]);
-        std::process::exit(1);
-    }
-
-    let mut split_threshold = 1.;
-    let mut verbose_level = 0;
-    let data_path = &program_args[2];
-    let mut samples_size = 10;
-    let mut ignore_weights = false;
-
-    println!("Data path: {}", data_path);
-
-    for arg in program_args.iter() {
-        if arg.starts_with("--split-threshold=") {
-            split_threshold = arg.split_at(18).1.parse::<f64>().unwrap_or(split_threshold);
-        }
-        if arg.starts_with("--verbose=") {
-            verbose_level = arg.split_at(10).1.parse::<usize>().unwrap_or(verbose_level);
-        }
-        if arg.starts_with("--samples-size=") {
-            samples_size = arg.split_at(15).1.parse::<usize>().unwrap_or(samples_size);
-        }
-
-        if arg.starts_with("--ignore-weights") {
-            ignore_weights = true;
-        }
-    }
-
+pub fn run_cluster_solver(cli: Cli) {
 
 
     
-    let (matrix, node_indices) = load_edges_file(&data_path, ' ', ignore_weights);
+    let (matrix, node_indices) = load_edges_file(&cli.data_path, ' ', cli.ignore_weights, !cli.simple_file_format);
 
 
     // Compute the reverse node map
@@ -770,12 +788,12 @@ pub fn run_cluster_solver() {
 
     println!("n={n} m={m}");
     println!("Start clustering...");
-    let clusters = cluster_graph(matrix, verbose_level, 2, samples_size, split_threshold);
+    let clusters = cluster_graph(matrix, cli.verbose, 2, cli.samples_size, cli.split_threshold, cli.size_sensitivity);
 
 
     
-    let results_path = data_path.to_string() + ".clusters";
-    let output_file = File::create(results_path).expect("Failed to create file");
+    let results_path = cli.data_path.to_string() + ".clusters";
+    let output_file = File::create(results_path.clone()).expect("Failed to create file");
     let mut writer = BufWriter::new(output_file);
 
     for cluster in &clusters {
@@ -784,5 +802,8 @@ pub fn run_cluster_solver() {
         }
         writeln!(writer).expect("Failed to write end-of-line to file");
     }
+
+    println!("Clusters details written in {results_path}");
+
 }
 
