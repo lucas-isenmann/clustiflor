@@ -6,7 +6,7 @@ Clustering of graphs and biclustering of bipartite graphs algorithms with overla
 
 ## Clustering
 
-## n m File format
+### n m File format
 
 Graph file format used is a line "n m" (where n is the number of vertices and m is the number of edges)followed by the list of the edges with or without weights.
 Without weights, the default weight is 1.
@@ -24,7 +24,7 @@ For example this graph has 4 vertices and 5 edges and the weight of (2,3) is 0.5
     0 2
     0 3
 
-## Simple File Format
+### Simple File Format
 
 With the option --simple-file-format, the format used is the following:
 It is a list of pairs (i,j) or triplets (i,j,w).
@@ -43,7 +43,7 @@ Labels i and j are considered as strings so you can use "2" or "b" as labels.
 Option --ignore-weights ignore the weights of the files and use 1 by default.
 
 
-## Launch
+### Launch
 
 Launch
 
