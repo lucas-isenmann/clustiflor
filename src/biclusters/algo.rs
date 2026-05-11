@@ -1,43 +1,44 @@
 use core::f64;
-use std::collections::{HashMap, HashSet};
-use std::time::Instant;
 use ndarray::Array2;
+use rand::rng;
 use rand::rngs::ThreadRng;
 use rand::seq::SliceRandom;
-use rand::thread_rng;
+use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
-use crate::biclusters::biclust::Biclust;
-use crate::common::{compute_statio_distrib_by_iter, print_matrix, progress_bar};
 use super::common::transition_matrix_b;
 use super::weighted_biadj::WeightedBiAdjacency;
-
-
-
-
+use crate::biclusters::biclust::Biclust;
+use crate::common::{compute_statio_distrib_by_iter, print_matrix, progress_bar};
 
 /// The center vertex is supposed to be at index 0 in neighbors (so it is the closed neighborhood)
-/// 
-fn centered_transition_matrix(  tm: &Array2<f64>, neighbors: &Vec<usize>) -> Array2<f64> {
+///
+fn centered_transition_matrix(tm: &Array2<f64>, neighbors: &Vec<usize>) -> Array2<f64> {
     let d = neighbors.len();
-    let mut ctm = Array2::zeros((d,d));
+    let mut ctm = Array2::zeros((d, d));
 
     for ni in 0..d {
         let i = neighbors[ni];
         let mut s = 0.;
         for nj in 0..d {
             let j = neighbors[nj];
-            ctm[[ni,nj]] = tm[[i,j]];
-            s += ctm[[ni,nj]];
+            ctm[[ni, nj]] = tm[[i, j]];
+            s += ctm[[ni, nj]];
         }
-        ctm[[ni,0]] += 1.-s;
+        ctm[[ni, 0]] += 1. - s;
     }
 
     ctm
 }
 
-fn compute_order(wadj: &WeightedBiAdjacency, m: usize, vertex: usize, tm_common: &Array2<f64>, markov_power: usize, verbose: usize)
- -> Vec<(usize,f64)> {
-    
+fn compute_order(
+    wadj: &WeightedBiAdjacency,
+    m: usize,
+    vertex: usize,
+    tm_common: &Array2<f64>,
+    markov_power: usize,
+    verbose: usize,
+) -> Vec<(usize, f64)> {
     // Search the B vertices which have a common neighbor with vertex
     // neighbors[0] = vertex
     let mut neighbors: Vec<usize> = vec![vertex];
@@ -45,9 +46,9 @@ fn compute_order(wadj: &WeightedBiAdjacency, m: usize, vertex: usize, tm_common:
         if b == vertex {
             continue;
         }
-        for (x,_) in wadj.iter(b){
+        for (x, _) in wadj.iter(b) {
             let mut found = false;
-            for (y,_) in wadj.iter(vertex) {
+            for (y, _) in wadj.iter(vertex) {
                 if y == x {
                     neighbors.push(b);
                     found = true;
@@ -59,14 +60,16 @@ fn compute_order(wadj: &WeightedBiAdjacency, m: usize, vertex: usize, tm_common:
             }
         }
     }
-    
-    let mut ctm = centered_transition_matrix(tm_common, &neighbors).t().into_owned();
+
+    let ctm = centered_transition_matrix(tm_common, &neighbors)
+        .t()
+        .into_owned();
     if verbose >= 2 {
         println!("Centered to {vertex} transition matrix:");
         print_matrix(&ctm);
     }
 
-    let v_result = compute_statio_distrib_by_iter(&ctm, 16, verbose);
+    let v_result = compute_statio_distrib_by_iter(&ctm, markov_power, verbose);
 
     // By exponentiation
     // let d = neighbors.len();
@@ -78,27 +81,26 @@ fn compute_order(wadj: &WeightedBiAdjacency, m: usize, vertex: usize, tm_common:
     // let v_result = ctm.dot(&v);
 
     // Order subset by decreasing probability
-    let mut order: Vec<(usize, f64)> = neighbors.iter().enumerate()
+    let mut order: Vec<(usize, f64)> = neighbors
+        .iter()
+        .enumerate()
         .map(|(ni, &i)| (i, v_result[[ni, 0]]))
         .collect();
-    
-    order.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-    
-    order
 
+    order.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+    order
 }
 
 #[derive(PartialEq, Eq)]
 enum State {
     Negative,
-    Positive
+    Positive,
 }
-
-
 
 fn degree(wadj: &WeightedBiAdjacency, a: usize, m: usize) -> f64 {
     let mut d = 0.;
-    for (_,w) in wadj.iter(a+m) {
+    for (_, w) in wadj.iter(a + m) {
         d += w;
     }
     d
@@ -106,7 +108,14 @@ fn degree(wadj: &WeightedBiAdjacency, a: usize, m: usize) -> f64 {
 
 ///
 /// cost_coef in [0,1]
-fn best(n:usize, m: usize, order: Vec<(usize, f64)>, wadj: &WeightedBiAdjacency, cost_coef: f64, split_threshold: f64) -> (f64, Vec<usize>)  {
+fn best(
+    n: usize,
+    m: usize,
+    order: Vec<(usize, f64)>,
+    wadj: &WeightedBiAdjacency,
+    cost_coef: f64,
+    split_threshold: f64,
+) -> (f64, Vec<usize>) {
     let mut best_cost = f64::NAN;
     let mut best_cluster = Vec::new();
     let mut b_cluster = Vec::new();
@@ -114,24 +123,24 @@ fn best(n:usize, m: usize, order: Vec<(usize, f64)>, wadj: &WeightedBiAdjacency,
     let mut s = 0.;
     let mut c = 0.;
     let mut state = HashMap::new();
-    let mut indegree = vec![0.;n];
-    let mut outdegree = vec![0.;n];
+    let mut indegree = vec![0.; n];
+    let mut outdegree = vec![0.; n];
 
     for (i, proba_i) in order {
         if proba_i == 0. {
-            break
+            break;
         }
         b_cluster.push(i);
         s += 1.;
 
-        for (x, st) in state.iter_mut(){
+        for (x, st) in state.iter_mut() {
             if wadj.has_edgee(*x, i) == false {
                 if *st == State::Positive {
-                    if indegree[*x] <= s*0.5 {
+                    if indegree[*x] <= s * 0.5 {
                         *st = State::Negative;
                         // state.insert(*x, State::Negative);
                         c += indegree[*x];
-                        c -= (s-1.) - indegree[*x];
+                        c -= (s - 1.) - indegree[*x];
                         if outdegree[*x] <= split_threshold {
                             c -= outdegree[*x];
                         } else {
@@ -143,11 +152,11 @@ fn best(n:usize, m: usize, order: Vec<(usize, f64)>, wadj: &WeightedBiAdjacency,
                 }
             }
         }
-        for (&x,&w) in wadj.iter(i) {
+        for (&x, &w) in wadj.iter(i) {
             if state.contains_key(&x) == false {
                 indegree[x] = w;
                 outdegree[x] = degree(wadj, x, m) - w;
-                if indegree[x] > s*0.5 {
+                if indegree[x] > s * 0.5 {
                     state.insert(x, State::Positive);
                     c += s - indegree[x];
                     if outdegree[x] > split_threshold {
@@ -159,14 +168,14 @@ fn best(n:usize, m: usize, order: Vec<(usize, f64)>, wadj: &WeightedBiAdjacency,
                     state.insert(x, State::Negative);
                     c += indegree[x];
                 }
-            } else if  state[&x] == State::Positive {
+            } else if state[&x] == State::Positive {
                 indegree[x] += w;
                 outdegree[x] -= w;
 
-                if indegree[x] > s*0.5 {
+                if indegree[x] > s * 0.5 {
                     // Keep connected
-                    c += 1.-w;
-                    if outdegree[x]+w > 1. && outdegree[x] <= split_threshold {
+                    c += 1. - w;
+                    if outdegree[x] + w > 1. && outdegree[x] <= split_threshold {
                         c += -1. + outdegree[x];
                     } else if outdegree[x] <= 1. {
                         c -= w;
@@ -174,7 +183,7 @@ fn best(n:usize, m: usize, order: Vec<(usize, f64)>, wadj: &WeightedBiAdjacency,
                 } else {
                     // Unconnect x
                     state.insert(x, State::Negative);
-                    c -= (s-1.) - (indegree[x]-w);
+                    c -= (s - 1.) - (indegree[x] - w);
                     if outdegree[x] + w > split_threshold {
                         c -= 1.;
                     } else {
@@ -185,7 +194,7 @@ fn best(n:usize, m: usize, order: Vec<(usize, f64)>, wadj: &WeightedBiAdjacency,
             } else {
                 indegree[x] += w;
                 outdegree[x] -= w;
-                if indegree[x] > s*0.5 {
+                if indegree[x] > s * 0.5 {
                     state.insert(x, State::Positive);
                     c -= indegree[x] - w;
                     c += s - indegree[x];
@@ -200,7 +209,7 @@ fn best(n:usize, m: usize, order: Vec<(usize, f64)>, wadj: &WeightedBiAdjacency,
             }
         }
 
-        let cost = c*f64::powf(s, -cost_coef);
+        let cost = c * f64::powf(s, -cost_coef);
         if best_cost.is_nan() || cost < best_cost {
             best_cost = cost;
             best_cluster = b_cluster.clone();
@@ -209,11 +218,6 @@ fn best(n:usize, m: usize, order: Vec<(usize, f64)>, wadj: &WeightedBiAdjacency,
 
     (best_cost, best_cluster)
 }
-
-
-
-
-
 
 fn compute_unclustered_a(n: usize, a_clusters: &Vec<Vec<usize>>) -> Vec<usize> {
     let mut a_unclustered = vec![];
@@ -233,29 +237,30 @@ fn compute_unclustered_a(n: usize, a_clusters: &Vec<Vec<usize>>) -> Vec<usize> {
     a_unclustered
 }
 
-
 pub struct AlgoStats {
     pub adjusted_error: f64,
     pub nb_operations: f64,
     pub nb_splits: f64,
     pub nb_deletions: f64,
-    pub nb_additions: f64
+    pub nb_additions: f64,
 }
 
-
 /// Pick a random sample of size k in (0..n-1) such that no indices are in assigned.
-/// If k > the number of unassigned vertices, then retain all the unassigned vertices 
-fn pick_unassigned_sample(rng: &mut ThreadRng, k: usize, unassigned: &HashSet<usize>) -> Vec<usize> {
-    let mut all_numbers: Vec<usize> =vec![];
+/// If k > the number of unassigned vertices, then retain all the unassigned vertices
+fn pick_unassigned_sample(
+    rng: &mut ThreadRng,
+    k: usize,
+    unassigned: &HashSet<usize>,
+) -> Vec<usize> {
+    let mut all_numbers: Vec<usize> = vec![];
     for v in unassigned {
         all_numbers.push(*v);
     }
     // all_numbers.retain(|&x| !assigned.contains(&x));
-    
-    if all_numbers.len() < k {
-        return all_numbers
-    }
 
+    if all_numbers.len() < k {
+        return all_numbers;
+    }
 
     all_numbers.shuffle(rng);
     let mut result = vec![];
@@ -265,17 +270,20 @@ fn pick_unassigned_sample(rng: &mut ThreadRng, k: usize, unassigned: &HashSet<us
     result
 }
 
-
-
 /// Main one sided biclustering function
-/// 
+///
 /// Partition columns
-/// 
+///
 /// Rows may overlap
-pub fn bicluster_one_sided( wadj: &mut WeightedBiAdjacency, cost_coef: f64, split_threshold: f64, markov_power: usize, verbose: usize) -> (Biclust, AlgoStats) {
-
+pub fn bicluster_one_sided(
+    wadj: &mut WeightedBiAdjacency,
+    cost_coef: f64,
+    split_threshold: f64,
+    markov_power: usize,
+    verbose: usize,
+) -> (Biclust, AlgoStats) {
     let min_error = wadj.compute_min_error();
-    let mut rng = thread_rng();
+    let mut rng = rng();
 
     let n = wadj.get_n();
     let m = wadj.get_m();
@@ -295,7 +303,6 @@ pub fn bicluster_one_sided( wadj: &mut WeightedBiAdjacency, cost_coef: f64, spli
 
     // While there exists some B vertices to cluster
     loop {
-
         if verbose >= 1 {
             println!("---");
             println!("{nb_assigned} B / {m} vertices are assigned");
@@ -303,7 +310,7 @@ pub fn bicluster_one_sided( wadj: &mut WeightedBiAdjacency, cost_coef: f64, spli
         if nb_assigned == m {
             break;
         }
-        
+
         if verbose == 0 {
             progress_bar(nb_assigned, m, start_instant);
         }
@@ -322,15 +329,14 @@ pub fn bicluster_one_sided( wadj: &mut WeightedBiAdjacency, cost_coef: f64, spli
             continue;
         }
 
-
         // Search min/max degree
         let mut mindeg = 100000;
         let mut minv = None;
         let mut maxdeg = 0;
         let mut maxv = None;
 
-        for v in  0..m {
-            if assigned[v]{
+        for v in 0..m {
+            if assigned[v] {
                 continue;
             }
             let degree = wadj.col_degree(v);
@@ -358,7 +364,6 @@ pub fn bicluster_one_sided( wadj: &mut WeightedBiAdjacency, cost_coef: f64, spli
         let mut best_cluster = Vec::new();
         let mut best_cost = f64::NAN;
 
-
         let mut unassigned: HashSet<usize> = (0..0).collect();
         for b in 0..m {
             if assigned[b] == false {
@@ -367,11 +372,11 @@ pub fn bicluster_one_sided( wadj: &mut WeightedBiAdjacency, cost_coef: f64, spli
         }
 
         // Pick a sample
-        let mut sample = pick_unassigned_sample(&mut rng,  1, &unassigned);
+        let mut sample = pick_unassigned_sample(&mut rng, 1, &unassigned);
 
         // Add minv and maxv if they are not in the sample
         if let Some(minv) = minv {
-            if sample.contains(&minv) == false{
+            if sample.contains(&minv) == false {
                 sample.push(minv);
             }
         }
@@ -385,25 +390,27 @@ pub fn bicluster_one_sided( wadj: &mut WeightedBiAdjacency, cost_coef: f64, spli
 
         // Find the B_cluster with minimal cost
         for b in sample {
-
             // Compute order of b
             let mut d = 0.;
-            for (_,w) in wadj.iter(b) {
+            for (_, w) in wadj.iter(b) {
                 d += w;
             }
-            let order = 
-                if d == 0. {
-                    vec![(b,1.)]
-                } else {
-                    compute_order(&wadj, m, b, &tm, markov_power, verbose)
-                };
+            let order = if d == 0. {
+                vec![(b, 1.)]
+            } else {
+                compute_order(&wadj, m, b, &tm, markov_power, verbose)
+            };
 
-            println!("Col: {b} deg: {} B-neighbors: {}", wadj.col_degree(b), order.len());
+            println!(
+                "Col: {b} deg: {} B-neighbors: {}",
+                wadj.col_degree(b),
+                order.len()
+            );
             if verbose >= 2 {
                 println!("Step 1: compute order of {b}");
                 println!("{order:?}");
             }
-            
+
             // Compute best cost
             let (cost, b_cluster) = best(n, m, order, &wadj, cost_coef, split_threshold);
             if best_cost.is_nan() || cost < best_cost {
@@ -416,11 +423,11 @@ pub fn bicluster_one_sided( wadj: &mut WeightedBiAdjacency, cost_coef: f64, spli
             }
         }
 
-
-        if best_cluster.len() == 0 { // This case should not happen
+        if best_cluster.len() == 0 {
+            // This case should not happen
             panic!("best_cluster is empty");
         }
-        
+
         for &b in best_cluster.iter() {
             if assigned[b] {
                 panic!("col {b} already assigned");
@@ -437,13 +444,14 @@ pub fn bicluster_one_sided( wadj: &mut WeightedBiAdjacency, cost_coef: f64, spli
             println!("Cols indices:  {best_cluster:?}");
             let mut cols_labels = vec![];
             for i in 0..best_cluster.len() {
-                cols_labels.push(wadj.get_label(n+best_cluster[i]));
+                cols_labels.push(wadj.get_label(n + best_cluster[i]));
             }
             println!("Cols labels: [{}]", cols_labels.join(" "));
             println!("Nb cols:  {}", best_cluster.len());
         }
 
-        let (a_cluster, del, add, spl )= apply_operations(n, m, best_cluster, wadj, split_threshold, verbose); 
+        let (a_cluster, del, add, spl) =
+            apply_operations(n, m, best_cluster, wadj, split_threshold, verbose);
         nb_deletions += del;
         nb_additions += add;
         nb_splits += spl;
@@ -462,7 +470,7 @@ pub fn bicluster_one_sided( wadj: &mut WeightedBiAdjacency, cost_coef: f64, spli
             println!("Splits: {spl}");
             println!("Cost: {best_cost:.3}");
         }
-        
+
         a_clusters.push(a_cluster);
     }
 
@@ -473,44 +481,42 @@ pub fn bicluster_one_sided( wadj: &mut WeightedBiAdjacency, cost_coef: f64, spli
     }
 
     // After having clustered every B vertices, it is possible that there remains unclustered A vertices
-    let unclustered_a = compute_unclustered_a(n,  &a_clusters);
+    let unclustered_a = compute_unclustered_a(n, &a_clusters);
 
     if unclustered_a.len() > 0 {
         a_clusters.push(unclustered_a.clone());
         b_clusters.push(vec![]);
     }
 
-    let eta = (nb_additions + nb_deletions ) / ((n *m) as f64);
-    let eta = eta-min_error;
-    
+    let eta = (nb_additions + nb_deletions) / ((n * m) as f64);
+    let eta = eta - min_error;
 
-    let bicluster_stats  = AlgoStats {
+    let bicluster_stats = AlgoStats {
         adjusted_error: eta,
         nb_operations: nb_operations,
         nb_splits: nb_splits,
         nb_additions: nb_additions,
-        nb_deletions: nb_deletions
+        nb_deletions: nb_deletions,
     };
 
     // Check integrity
     check_integrity(&a_clusters, &b_clusters, n, m);
 
-    
     // compute_clusters(&a_clusters, &b_clusters, n, m)
-    (Biclust::from_separate_biclusters(n,m, &a_clusters, &b_clusters), bicluster_stats)
+    (
+        Biclust::from_separate_biclusters(n, m, &a_clusters, &b_clusters),
+        bicluster_stats,
+    )
+}
 
-}      
-
-
-
-
-
-
-
-
-
-
-fn apply_operations(n: usize, m: usize, b_cluster: Vec<usize>, wadj: &mut WeightedBiAdjacency, split_threshold: f64, verbose: usize) -> (Vec<usize>, f64, f64, f64) {
+fn apply_operations(
+    n: usize,
+    m: usize,
+    b_cluster: Vec<usize>,
+    wadj: &mut WeightedBiAdjacency,
+    split_threshold: f64,
+    verbose: usize,
+) -> (Vec<usize>, f64, f64, f64) {
     let mut a_cluster = vec![];
     let mut nb_deletions = 0.;
     let mut nb_splits = 0.;
@@ -519,15 +525,15 @@ fn apply_operations(n: usize, m: usize, b_cluster: Vec<usize>, wadj: &mut Weight
 
     for a in 0..n {
         let mut indegree = 0.;
-        for (&col,w) in wadj.iter(a+m) {
+        for (&col, w) in wadj.iter(a + m) {
             if b_cluster.contains(&col) {
                 indegree += w;
                 // println!("{col}");
                 // println!("{}", wadj.has_edgee(a, col));
             }
-        } 
-        
-        if indegree > blen*0.5 {
+        }
+
+        if indegree > blen * 0.5 {
             // println!("{a} indegree: {indegree}");
             a_cluster.push(a);
             nb_additions += blen - indegree;
@@ -537,19 +543,16 @@ fn apply_operations(n: usize, m: usize, b_cluster: Vec<usize>, wadj: &mut Weight
                     if wadj.has_edgee(a, col) == false {
                         println!("add {a} {col}");
                     }
-                } 
+                }
             }
-            
 
             // Compute the number of neighbors of row a outside b_cluster
             let mut out_degree = 0.;
-            for (i,w) in wadj.iter(a+m) {
+            for (i, w) in wadj.iter(a + m) {
                 if b_cluster.contains(&i) == false {
                     out_degree += w;
                 }
             }
-
-
 
             // Delete case
             if out_degree <= split_threshold {
@@ -562,14 +565,15 @@ fn apply_operations(n: usize, m: usize, b_cluster: Vec<usize>, wadj: &mut Weight
                         wadj.delete_edge(a, b);
                     }
                 }
-                for &b in b_cluster.iter() { // I think it is useless
+                for &b in b_cluster.iter() {
+                    // I think it is useless
                     if wadj.has_edgee(a, b) {
                         wadj.delete_edge(a, b);
-                    }   
+                    }
                 }
-            } 
+            }
             // Split case
-            else { 
+            else {
                 nb_splits += 1.;
                 if verbose >= 1 {
                     println!("split {a} {}", wadj.get_label(a))
@@ -581,10 +585,7 @@ fn apply_operations(n: usize, m: usize, b_cluster: Vec<usize>, wadj: &mut Weight
                     }
                 }
             }
-
-
-        }
-        else {
+        } else {
             nb_deletions += indegree;
             for &b in b_cluster.iter() {
                 if wadj.has_edgee(a, b) {
@@ -595,39 +596,35 @@ fn apply_operations(n: usize, m: usize, b_cluster: Vec<usize>, wadj: &mut Weight
                 }
             }
         }
-
     }
-
 
     (a_cluster, nb_deletions, nb_additions, nb_splits)
 }
 
-
-
-
-
-
-fn compute_clusters(a_clusters: &Vec<Vec<usize>>, b_clusters: &Vec<Vec<usize>>, n: usize, m: usize) -> Vec<Vec<usize>> {
-    let mut clusters = vec![];
-    for i in 0..b_clusters.len() {
-        let mut cluster = vec![];
-        for &b in b_clusters[i].iter() {
-            cluster.push(b+n);
-        }
-        for &a in a_clusters[i].iter() {
-            cluster.push(a);
-        }
-        cluster.sort();
-        clusters.push(cluster);
-    }
-    clusters
-}
-
+// fn compute_clusters(a_clusters: &Vec<Vec<usize>>, b_clusters: &Vec<Vec<usize>>, n: usize, m: usize) -> Vec<Vec<usize>> {
+//     let mut clusters = vec![];
+//     for i in 0..b_clusters.len() {
+//         let mut cluster = vec![];
+//         for &b in b_clusters[i].iter() {
+//             cluster.push(b+n);
+//         }
+//         for &a in a_clusters[i].iter() {
+//             cluster.push(a);
+//         }
+//         cluster.sort();
+//         clusters.push(cluster);
+//     }
+//     clusters
+// }
 
 /// Check if the b_clusters form a partition of {0, ..., m-1}
 /// and that a_clusters are covering {0, ..., n-1}.
-fn check_integrity(a_clusters: &Vec<Vec<usize>>, b_clusters: &Vec<Vec<usize>>, n: usize, m: usize) -> bool {
-
+fn check_integrity(
+    a_clusters: &Vec<Vec<usize>>,
+    b_clusters: &Vec<Vec<usize>>,
+    n: usize,
+    m: usize,
+) -> bool {
     // Check B_clusters is a partition of {0, ..., m-1}  (every integer is covered exactly once)
     let mut b_hit = vec![0; m];
     for b_cluster in b_clusters {
@@ -659,18 +656,7 @@ fn check_integrity(a_clusters: &Vec<Vec<usize>>, b_clusters: &Vec<Vec<usize>>, n
     true
 }
 
-    
-
-
-
-
-
-
-
-    
-
-
-fn biclusters_contains_subset(biclusters: &Vec<Vec<usize>>, subset: &Vec<usize>) -> bool{
+fn biclusters_contains_subset(biclusters: &Vec<Vec<usize>>, subset: &Vec<usize>) -> bool {
     for bicluster in biclusters {
         let mut ok = true;
         for x in subset {
@@ -686,24 +672,25 @@ fn biclusters_contains_subset(biclusters: &Vec<Vec<usize>>, subset: &Vec<usize>)
     false
 }
 
-
-pub fn compute_edition_diff(biclusters: &Vec<Vec<usize>>, wadj: &Vec<HashMap<usize, f64>>, n: usize, m: usize) -> f64 {
+pub fn compute_edition_diff(
+    biclusters: &Vec<Vec<usize>>,
+    wadj: &Vec<HashMap<usize, f64>>,
+    n: usize,
+    m: usize,
+) -> f64 {
     let mut r = 0;
 
     for a in 0..n {
         for b in 0..m {
-            if wadj[b].contains_key(&a) != biclusters_contains_subset(biclusters, &vec![a,b+n]) {
-                println!("{a} {} ",b+n);
+            if wadj[b].contains_key(&a) != biclusters_contains_subset(biclusters, &vec![a, b + n]) {
+                println!("{a} {} ", b + n);
                 r += 1;
             }
         }
     }
-    
-    
+
     r as f64
 }
-
-
 
 pub fn compute_nb_unclustered(biclusters: &Vec<Vec<usize>>, n: usize, m: usize) -> (usize, usize) {
     let mut ra = 0;
@@ -711,10 +698,10 @@ pub fn compute_nb_unclustered(biclusters: &Vec<Vec<usize>>, n: usize, m: usize) 
         if biclusters_contains_subset(biclusters, &vec![a]) == false {
             ra += 1;
         }
-    }    
+    }
     let mut rb = 0;
     for b in 0..m {
-        if biclusters_contains_subset(biclusters, &vec![b+n]) == false {
+        if biclusters_contains_subset(biclusters, &vec![b + n]) == false {
             rb += 1;
         }
     }

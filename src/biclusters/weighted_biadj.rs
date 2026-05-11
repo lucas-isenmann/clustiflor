@@ -197,7 +197,7 @@ impl WeightedBiAdjacency {
     /// row_separation >= 1
     pub fn rand(n: usize, m: usize, noise: f64, row_overlap: f64, row_separation: f64  ) -> Self{
         let mut wadj = WeightedBiAdjacency::new(n,m);
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // For each A vertex, generate the number of biclusters which will contains it
         // At least 1. Using a exponential law
@@ -249,7 +249,7 @@ impl WeightedBiAdjacency {
         // Noise
         for i in 0..n  {
             for j in 0..m {
-                if rng.gen_range(0.0..1.0) < noise {
+                if rng.random_range(0.0..1.0) < noise {
                     wadj.toggle(i, j);
                 }
             }
@@ -267,7 +267,7 @@ impl WeightedBiAdjacency {
     /// - noise: in [0,1] average number of fliped edges
     pub fn rand_v2(n: usize, m: usize, c: usize, over: f64, noise: f64 ) -> Self{
         let mut wadj = WeightedBiAdjacency::new(n,m);
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // For each A vertex, generate the number of biclusters which will contains it
         // = 1 + Bin(c-1, over)
@@ -313,7 +313,7 @@ impl WeightedBiAdjacency {
         // Noise
         for i in 0..n  {
             for j in 0..m {
-                if rng.gen_range(0.0..1.0) < noise {
+                if rng.random_range(0.0..1.0) < noise {
                     wadj.toggle(i, j);
                 }
             }
@@ -708,9 +708,9 @@ impl WeightedBiAdjacency {
 fn generate_exponential_random(p: f64) -> usize {
     let mut r = 1;
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     loop {
-        let roll = rng.gen::<f64>();
+        let roll = rng.random::<f64>();
         if p*roll < 1.  {
             return r;
         } else {
@@ -722,9 +722,9 @@ fn generate_exponential_random(p: f64) -> usize {
 
 fn generate_binomial(p: f64, n: usize) -> usize {
     let mut r = 0;
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     for _ in 0..n {
-        let roll = rng.gen::<f64>();
+        let roll = rng.random::<f64>();
         if roll < p  {
             r += 1;
         }
@@ -734,9 +734,9 @@ fn generate_binomial(p: f64, n: usize) -> usize {
 
 
 fn shuffle<T>(vec: &mut Vec<T>) {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     for i in (1..vec.len()).rev() {
-        let j = rng.gen_range(0..=i);
+        let j = rng.random_range(0..=i);
         vec.swap(i, j);
     }
 }

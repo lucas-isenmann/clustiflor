@@ -1,18 +1,15 @@
-
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
 use super::biclust::Biclust;
 
-
-
 /// First line of Bimax is the title
 pub fn load_r_biclusters(
-    file_path: &str, 
-    node_map_a: &HashMap<String, usize>,  
-    node_map_b: &HashMap<String, usize>) -> Biclust {
-
+    file_path: &str,
+    node_map_a: &HashMap<String, usize>,
+    node_map_b: &HashMap<String, usize>,
+) -> Biclust {
     let file = File::open(file_path).expect("Failed to open file");
     let reader = BufReader::new(file);
 
@@ -26,18 +23,17 @@ pub fn load_r_biclusters(
 
     for (i, line) in reader.lines().enumerate() {
         if i == 0 {
-            continue
+            continue;
         }
-        
+
         if let Ok(line) = line {
             if i % 3 == 1 {
-                continue
-            }
-            else if i % 3 == 2 {
+                continue;
+            } else if i % 3 == 2 {
                 // Rows
                 bicluster.clear();
                 let values: Vec<&str> = line.split(" ").collect();
-                for  x in values {
+                for x in values {
                     let &nx = node_map_a.get(x).unwrap();
                     clustered_rows[nx] = true;
                     bicluster.push(nx);
@@ -46,12 +42,10 @@ pub fn load_r_biclusters(
                 // Cols
 
                 let values: Vec<&str> = line.split(" ").collect();
-                for  x in values {
-                    
-
+                for x in values {
                     if let Some(&nx) = node_map_b.get(x) {
                         clustered_cols[nx] = true;
-                        bicluster.push(n+ nx);
+                        bicluster.push(n + nx);
                     } else {
                         println!("col {line}");
 
@@ -59,11 +53,9 @@ pub fn load_r_biclusters(
                         println!("{:?}", node_map_b);
                         panic!("aha");
                     }
-                    
                 }
                 biclusters.add_bicluster(bicluster.clone());
             }
-
         }
     }
     let mut isolated_rows = vec![];
@@ -78,7 +70,7 @@ pub fn load_r_biclusters(
     let mut isolated_cols = vec![];
     for col in 0..m {
         if clustered_cols[col] == false {
-            isolated_cols.push(n+col);
+            isolated_cols.push(n + col);
         }
     }
     if isolated_cols.len() > 0 {

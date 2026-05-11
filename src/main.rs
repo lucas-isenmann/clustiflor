@@ -1,42 +1,40 @@
 pub mod biclusters;
-pub mod common;
-pub mod clustering;
 pub mod cli;
+pub mod clustering;
+pub mod common;
 
-use std::path::Path;
-use std::time::{Instant};
-use std::{env, fs::File, process::Command};
 use std::io::{BufRead, BufReader, Write};
+use std::path::Path;
+use std::time::Instant;
+use std::{fs::File, process::Command};
 
 use biclusters::algo_two_sided::{analyze_ground_biclusters, bicluster_two_sided};
-use biclusters::{algo::{bicluster_one_sided},  weighted_biadj::WeightedBiAdjacency, r_results::load_r_biclusters};
+use biclusters::{
+    algo::bicluster_one_sided, r_results::load_r_biclusters, weighted_biadj::WeightedBiAdjacency,
+};
 
 use clap::Parser;
 use rand::Rng;
 use walkdir::WalkDir;
 
-use crate::clustering::cluster_algo::{run_cluster_solver};
-use crate::common::print_error;
 use crate::cli::Cli;
+use crate::clustering::cluster_algo::run_cluster_solver;
+use crate::common::print_error;
 
-
-fn gen_batch_v2(batch_size: usize){
+fn gen_batch_v2(batch_size: usize) {
     let base_name = "bigraphs/synth/batch2";
     for i in 0..batch_size {
+        let mut rng = rand::rng();
 
-        let mut rng = rand::thread_rng();
-
-        let n = rng.gen_range(10..=400);
-        let m = rng.gen_range(10..=400);
-        let c = rng.gen_range(1..(m/2));
-        let over = rng.gen_range(0.0..0.3);
-        let noise = rng.gen_range(0.0..=0.001);
+        let n = rng.random_range(10..=400);
+        let m = rng.random_range(10..=400);
+        let c = rng.random_range(1..(m / 2));
+        let over = rng.random_range(0.0..0.3);
+        let noise = rng.random_range(0.0..=0.001);
 
         println!("n {n} m {m} c {c} over {over} noise {noise}");
 
-
-
-        let wadj = WeightedBiAdjacency::rand_v2(n,m, c, over, noise);
+        let wadj = WeightedBiAdjacency::rand_v2(n, m, c, over, noise);
 
         let row_degrees_distrib = wadj.row_degrees_distributon();
         let col_degrees_distrib = wadj.col_degrees_distributon();
@@ -44,57 +42,58 @@ fn gen_batch_v2(batch_size: usize){
         println!("{:?}", row_degrees_distrib);
         println!("{:?}", col_degrees_distrib);
         // wadj.print_matrix();
-        
-        if let Some(gt) = wadj.get_ground_truth(){
+
+        if let Some(gt) = wadj.get_ground_truth() {
             gt.print();
         }
 
-
         // let (biclusters, stats) = bicluster(&mut wadj.clone(), 1.0, 1.0, 3, 0);
 
-
-        wadj.write_to_file(&format!("{base_name}/{i}.edges"), &format!("# n={n} m={m} c={c} over={over:.3} noise={noise:.3}") );
+        wadj.write_to_file(
+            &format!("{base_name}/{i}.edges"),
+            &format!("# n={n} m={m} c={c} over={over:.3} noise={noise:.3}"),
+        );
 
         let ground_truth = wadj.get_ground_truth();
-        let (labels_a, labels_b, nodes_a_map, nodes_b_map) = wadj.get_labels();
+        let (labels_a, labels_b, _nodes_a_map, _nodes_b_map) = wadj.get_labels();
 
         if let Some(ground_truth) = ground_truth {
-            ground_truth.write_to_file( &format!("{base_name}/{i}.ground_truth"), Some((labels_a, labels_b)));
+            ground_truth.write_to_file(
+                &format!("{base_name}/{i}.ground_truth"),
+                Some((labels_a, labels_b)),
+            );
         }
     }
 }
 
-
-
-fn gen_batch(batch_size: usize){
+fn gen_batch(batch_size: usize) {
     let base_name = "bigraphs/synth/batch";
     for i in 0..batch_size {
+        let mut rng = rand::rng();
 
-        let mut rng = rand::thread_rng();
+        let n = rng.random_range(10..=100);
+        let m = rng.random_range(10..=100);
+        let noise = rng.random_range(0.0..=0.1);
+        let row_overlap = rng.random_range(1.0..=2.0);
+        let row_separation = rng.random_range(0.0..=1.0);
 
-        let n = rng.gen_range(10..=100);
-        let m = rng.gen_range(10..=100);
-        let noise = rng.gen_range(0.0..=0.1);
-        let row_overlap = rng.gen_range(1.0..=2.0);
-        let row_separation = rng.gen_range(0.0..=1.0);
-
-
-        let wadj = WeightedBiAdjacency::rand(n,m, noise, row_overlap, row_separation);
+        let wadj = WeightedBiAdjacency::rand(n, m, noise, row_overlap, row_separation);
 
         wadj.write_to_file(&format!("{base_name}/{i}.edges"), &format!("# n={n} m={m} noise={noise:.3} row_overlap={row_overlap:.3} row_separation={row_separation:.3}") );
 
         let ground_truth = wadj.get_ground_truth();
-        let (labels_a, labels_b, nodes_a_map, nodes_b_map) = wadj.get_labels();
+        let (labels_a, labels_b, _nodes_a_map, _nodes_b_map) = wadj.get_labels();
 
         if let Some(ground_truth) = ground_truth {
-            ground_truth.write_to_file( &format!("{base_name}/{i}.ground_truth"), Some((labels_a, labels_b)));
+            ground_truth.write_to_file(
+                &format!("{base_name}/{i}.ground_truth"),
+                Some((labels_a, labels_b)),
+            );
         }
     }
 }
 
-pub fn read_duration_file(
-    file_path: &str ) -> f64 {
-
+pub fn read_duration_file(file_path: &str) -> f64 {
     let file = File::open(file_path).expect("Failed to open file");
     let reader = BufReader::new(file);
 
@@ -107,16 +106,15 @@ pub fn read_duration_file(
                     println!("{duration}");
                     return duration;
                 }
-            },
-            Err(_) => {},
+            }
+            Err(_) => {}
         }
     }
     println!("cant read {file_path}");
     0.
 }
 
-
-fn run_comparison(){
+fn run_comparison() {
     // Comparison
 
     let mut file = File::create("comparison.csv").unwrap();
@@ -128,48 +126,42 @@ fn run_comparison(){
         // let m = 10;
         // let noise = 0.00;
         // let row_overlap = 1.02;
-        // let row_separation = 0.8; 
+        // let row_separation = 0.8;
 
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
-        let n = rng.gen_range(10..=140);
-        let m = rng.gen_range(10..=140);
-        let noise = rng.gen_range(0.0..=0.2);
-        let row_overlap = rng.gen_range(1.0..=2.0);
-        let row_separation = rng.gen_range(0.0..=1.0);
+        let n = rng.random_range(10..=140);
+        let m = rng.random_range(10..=140);
+        let noise = rng.random_range(0.0..=0.2);
+        let row_overlap = rng.random_range(1.0..=2.0);
+        let row_separation = rng.random_range(0.0..=1.0);
 
-
-        let mut wadj = WeightedBiAdjacency::rand(n,m, noise, row_overlap, row_separation);
+        let mut wadj = WeightedBiAdjacency::rand(n, m, noise, row_overlap, row_separation);
         // wadj.print();
         wadj.write_to_file("bigraphs/synth/test2.adj", "#");
         wadj.write_to_file("gene.adj", "#");
         let ground_truth = wadj.get_ground_truth();
         let wadj_save = wadj.clone(); // Because clustiflor is deleting edges in wadj
-        
+
         // Clustiflor
         let start_time = Instant::now();
-        let (clusti_biclusters, clusti_stats) = bicluster_one_sided(&mut wadj, 1., 1., 3, 0);
+        let (clusti_biclusters, _clusti_stats) = bicluster_one_sided(&mut wadj, 1., 1., 3, 0);
         let clustiflor_dur = start_time.elapsed();
-        let (labels_a, labels_b, nodes_a_map, nodes_b_map) = wadj.get_labels();
+        let (_labels_a, _labels_b, nodes_a_map, nodes_b_map) = wadj.get_labels();
         // biclusters.print_stats(1., 1., 3, &labels_a, &labels_b, Some(&"yo.biclusters"));
 
         // R Bimax
-        Command::new("Rscript")
-            .arg("./script.r")
-            .status().unwrap();
+        Command::new("Rscript").arg("./script.r").status().unwrap();
 
-        let bimax_results = load_r_biclusters( "bimax_results.txt", &nodes_a_map, &nodes_b_map);
+        let bimax_results = load_r_biclusters("bimax_results.txt", &nodes_a_map, &nodes_b_map);
         let bimax_duration = read_duration_file("bimax_duration.txt");
 
-        
         // Bibit
-        Command::new("python3")
-            .arg("./bibit2.py")
-            .status().unwrap();
+        Command::new("python3").arg("./bibit2.py").status().unwrap();
 
-        let bibit_results = load_r_biclusters( "bibit_results.txt", &nodes_a_map, &nodes_b_map);
+        let bibit_results = load_r_biclusters("bibit_results.txt", &nodes_a_map, &nodes_b_map);
         let bibit_duration = read_duration_file("bibit_duration.txt");
-        
+
         if let Some(ground_truth) = ground_truth {
             // println!("ground truth");
             // ground_truth.print();
@@ -179,78 +171,92 @@ fn run_comparison(){
             // r.print();
             // println!("{}", ground_truth.matching_score(&biclusters));
             // println!("{}", ground_truth.matching_score(&r));
-            
+
             let real_noise = wadj_save.compute_noise(&ground_truth);
             let clusti_dur = clustiflor_dur.as_secs_f64();
             // let clusti_fscore = ground_truth.f_score(&clusti_biclusters);
-            let clusti_accuracy = ground_truth.accuracy(&clusti_biclusters);
+            let _clusti_accuracy = ground_truth.accuracy(&clusti_biclusters);
             let real_overlap = ground_truth.get_rows_overlapping();
-            let bimax_accuracy = ground_truth.accuracy(&bimax_results);
+            let _bimax_accuracy = ground_truth.accuracy(&bimax_results);
 
             writeln!(file, "{n} {m} {real_noise:.4} {noise:.4} {real_overlap:.4} {row_overlap:.4} {row_separation:.4} {:.2}  {clusti_dur:.2} {:.2} {bimax_duration:.4} {:.2} {bibit_duration}", 
             ground_truth.matching_score(&clusti_biclusters),
             ground_truth.matching_score(&bimax_results),
             ground_truth.matching_score(&bibit_results)
         ).unwrap();
-
         }
     }
 }
 
-
-
-fn run_bicluster_one_sided(cli: Cli){
-
+fn run_bicluster_one_sided(cli: Cli) {
     if cli.matrix_format {
-        let wadj =  WeightedBiAdjacency::load_wadj_from_matrix(&cli.data_path, cli.split_rows, &cli.sep, cli.matrix_labels).expect("Failed to load file");
+        let wadj = WeightedBiAdjacency::load_wadj_from_matrix(
+            &cli.data_path,
+            cli.split_rows,
+            &cli.sep,
+            cli.matrix_labels,
+        )
+        .expect("Failed to load file");
         wadj.print_wadj_stats();
         println!("Runing Bicluster One Sided");
 
         let mut wadj2 = wadj.clone();
-        let (biclusters, algo_stats) = bicluster_one_sided(&mut wadj2, cli.size_sensitivity, cli.split_threshold, cli.matrix_power, cli.verbose);
+        let (biclusters, algo_stats) = bicluster_one_sided(
+            &mut wadj2,
+            cli.size_sensitivity,
+            cli.split_threshold,
+            cli.matrix_power,
+            cli.verbose,
+        );
         let results_path = cli.data_path.to_string() + ".biclusters";
         let mut labels_a = vec![];
         let mut labels_b = vec![];
         for line in 0..wadj.get_n() {
             labels_a.push(line.to_string())
-        } 
+        }
         for j in 0..wadj.get_m() {
             labels_b.push(format!("c{j}"));
         }
-        biclusters.print_stats(cli.size_sensitivity, cli.split_threshold, cli.matrix_power, &wadj, Some(&results_path), algo_stats);
-
-
+        biclusters.print_stats(
+            cli.size_sensitivity,
+            cli.split_threshold,
+            cli.matrix_power,
+            &wadj,
+            Some(&results_path),
+            algo_stats,
+        );
     } else {
-        let wadj =  WeightedBiAdjacency::load_wadj_from_csv(&cli.data_path, " ", cli.split_rows);
+        let wadj = WeightedBiAdjacency::load_wadj_from_csv(&cli.data_path, " ", cli.split_rows);
         wadj.print_wadj_stats();
         let mut wadj2 = wadj.clone();
-        let (biclusters, algo_stats) = bicluster_one_sided(&mut wadj2, cli.size_sensitivity, cli.split_threshold, cli.matrix_power, cli.verbose);
+        let (biclusters, algo_stats) = bicluster_one_sided(
+            &mut wadj2,
+            cli.size_sensitivity,
+            cli.split_threshold,
+            cli.matrix_power,
+            cli.verbose,
+        );
         let results_path = cli.data_path.to_string() + ".biclusters";
-        biclusters.print_stats(cli.size_sensitivity, cli.split_threshold, cli.matrix_power, &wadj, Some(&results_path), algo_stats);
+        biclusters.print_stats(
+            cli.size_sensitivity,
+            cli.split_threshold,
+            cli.matrix_power,
+            &wadj,
+            Some(&results_path),
+            algo_stats,
+        );
 
-
-        
         // let r = load_r_biclusters( "results.txt", &node_map_a, &node_map_b);
         // for biclust in r.iter() {
         //     println!("{biclust:?}");
         // }
 
         // println!("{:?} {}", compute_nb_unclustered(&r, n, m), compute_edition_diff(&r, &wadj, n, m));
-    
-                
     }
-
-    
-
 }
 
-
-
-
-
-fn run_bicluster_solver(cli: Cli){
+fn run_bicluster_solver(cli: Cli) {
     println!("Data path: {}", cli.data_path);
-
 
     // Check if path exists
     let path = Path::new(&cli.data_path);
@@ -258,7 +264,7 @@ fn run_bicluster_solver(cli: Cli){
         eprintln!("Error: Path '{}' does not exist", cli.data_path);
         std::process::exit(1);
     }
-    
+
     // Handle directory case
     if path.is_dir() {
         process_directory(&cli.data_path.clone(), cli);
@@ -267,125 +273,115 @@ fn run_bicluster_solver(cli: Cli){
         process_single_file(&cli.data_path.clone(), cli);
     }
 
-
     // let wadj =  load_wadj_from_matrix(data_path);
     // print_wadj_stats(&wadj, wadj.get_n(), wadj.get_m());
     // let mut wadj2 = wadj.clone();
     // let (biclusters, algo_stats) = bicluster_two_sided(&mut wadj2, args.size, args.split, args.power, args.verbose);
-    
 
     // biclusters.print_biclusters( Some(&(data_path.to_string() + ".BiMarkov.results")));
-
-
-    
-
 }
-
-
 
 fn process_directory(dir_path: &str, cli: Cli) {
     println!("Processing directory: {}", dir_path);
-    
+
     for entry in WalkDir::new(dir_path)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|entry| {
-            entry.file_type().is_file() &&
-            entry.path().extension().map_or(false, |ext| ext == "data")
-        }) {
-            
+            entry.file_type().is_file()
+                && entry.path().extension().map_or(false, |ext| ext == "data")
+        })
+    {
         let file_path = entry.path();
         println!("Processing file: {:?}", file_path);
-        
-        let wadj = WeightedBiAdjacency::load_wadj_from_matrix(file_path.to_str().unwrap(), cli.split_rows, &cli.sep, cli.matrix_labels).expect("Failed to load matrix");
-        
-        
+
+        let wadj = WeightedBiAdjacency::load_wadj_from_matrix(
+            file_path.to_str().unwrap(),
+            cli.split_rows,
+            &cli.sep,
+            cli.matrix_labels,
+        )
+        .expect("Failed to load matrix");
+
         wadj.print_wadj_stats();
-        
-        if let Some(bc) =wadj.get_ground_truth(){
+
+        if let Some(bc) = wadj.get_ground_truth() {
             println!("{:?}", bc.biclusters());
         }
-        
+
         let mut wadj2 = wadj.clone();
-        let (biclusters, algo_stats) = bicluster_two_sided(
-            &mut wadj2, 
-            cli.size_sensitivity, 
-            cli.split_threshold, 
-            cli.matrix_power, 
-            cli.verbose
+        let (biclusters, _) = bicluster_two_sided(
+            &mut wadj2,
+            cli.size_sensitivity,
+            cli.split_threshold,
+            cli.matrix_power,
+            cli.verbose,
         );
 
-        if let Some(ground_biclusters) = wadj.get_ground_truth(){
+        if let Some(ground_biclusters) = wadj.get_ground_truth() {
             let ms = ground_biclusters.matching_score(&biclusters);
             let ms2 = biclusters.matching_score(&ground_biclusters);
-            println!("matching score: {ms:.3} {ms2:.3} {:.3}", (ms*ms2).sqrt()  );
+            println!("matching score: {ms:.3} {ms2:.3} {:.3}", (ms * ms2).sqrt());
         }
-        
+
         let result_path = format!("{}.BiMarkov.results", file_path.display());
         biclusters.print_biclusters(Some(&result_path));
     }
 }
 
-
-
 fn process_single_file(file_path: &str, cli: Cli) {
     println!("Processing single file: {}", file_path);
-    
-    let wadj = WeightedBiAdjacency::load_wadj_from_matrix(file_path, cli.split_rows, &cli.sep, cli.matrix_labels).expect("Failed to load matrix");
+
+    let wadj = WeightedBiAdjacency::load_wadj_from_matrix(
+        file_path,
+        cli.split_rows,
+        &cli.sep,
+        cli.matrix_labels,
+    )
+    .expect("Failed to load matrix");
     wadj.print_wadj_stats();
 
-    if let Some(bc) = wadj.get_ground_truth(){
+    if let Some(bc) = wadj.get_ground_truth() {
         println!("{:?}", bc.biclusters());
     }
-    
+
     let mut wadj2 = wadj.clone();
-    let (biclusters, algo_stats) = bicluster_two_sided(
-        &mut wadj2, 
-        cli.size_sensitivity, 
-        cli.split_threshold, 
-       cli.matrix_power, 
-        cli.verbose
+    let (biclusters, _) = bicluster_two_sided(
+        &mut wadj2,
+        cli.size_sensitivity,
+        cli.split_threshold,
+        cli.matrix_power,
+        cli.verbose,
     );
 
-    if let Some(ground_biclusters) = wadj.get_ground_truth(){
+    if let Some(ground_biclusters) = wadj.get_ground_truth() {
         let ms = ground_biclusters.matching_score(&biclusters);
         let ms2 = biclusters.matching_score(&ground_biclusters);
-        println!("matching score: {ms:.3} {ms2:.3} {:.3}", (ms*ms2).sqrt()  );
+        println!("matching score: {ms:.3} {ms2:.3} {:.3}", (ms * ms2).sqrt());
     }
 
     analyze_ground_biclusters(&wadj);
-    
+
     biclusters.print_biclusters(Some(&(file_path.to_string() + ".BiMarkov3.results")));
 }
 
-
-
-
-
-
-
-
-
-
-
 fn main() {
-
-
-
     let mut cli = Cli::parse();
 
-    cli.sep = cli.sep.replace(r"\t", "\t")
-       .replace(r"\n", "\n")
-       .replace(r"\r", "\r");
-    
+    cli.sep = cli
+        .sep
+        .replace(r"\t", "\t")
+        .replace(r"\n", "\n")
+        .replace(r"\r", "\r");
+
     match cli.cluster_type.as_str() {
-        "cluster" | "bicluster" | "onesided-bicluster" => {
-        }
+        "cluster" | "bicluster" | "onesided-bicluster" => {}
         _ => {
-            print_error("Invalid cluster type. Must be one of: cluster, bicluster, or onesided-bicluster");
+            print_error(
+                "Invalid cluster type. Must be one of: cluster, bicluster, or onesided-bicluster",
+            );
         }
     }
-
 
     // Check if path exists
     let path = Path::new(&cli.data_path);
@@ -398,29 +394,24 @@ fn main() {
     if cli.size_sensitivity > 1.0 || cli.size_sensitivity < 0.0 {
         print_error("Size sensitivity must be in [0,1]");
     }
-    if cli.split_threshold < 1.0  {
+    if cli.split_threshold < 1.0 {
         print_error("Split threshold must be in [1,+oo[");
     }
 
-
     if cli.cluster_type == "cluster" {
         run_cluster_solver(cli);
-    }
-    else if cli.cluster_type == "onesided-bicluster" {
+    } else if cli.cluster_type == "onesided-bicluster" {
         run_bicluster_one_sided(cli);
-    }
-    else if cli.cluster_type == "bicluster" {
+    } else if cli.cluster_type == "bicluster" {
         run_bicluster_solver(cli);
     }
-
 
     return;
 
     // run_bicluster_solver();
-    
+
     // gen_batch_v2(1);
-    
+
     // run_solver();
     // run_comparison();
-    
 }

@@ -1,20 +1,21 @@
-use std::collections::HashMap;
 use ndarray::Array2;
 use rand::rngs::ThreadRng;
+use std::collections::HashMap;
 
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 
+use rand::seq::SliceRandom;
 use std::collections::HashSet;
-use rand::{seq::SliceRandom, thread_rng};
-use std::time::{Instant};
+use std::time::Instant;
 
-use crate::common::{approx_statio_distrib_by_indegree, compute_statio_distrib_by_exp, compute_statio_distrib_by_iter, compute_statio_distrib_by_pivot, dist, print_matrix, progress_bar};
 use crate::cli::Cli;
+use crate::common::{compute_statio_distrib_by_iter, print_matrix, progress_bar};
 
-
-
-pub fn load_adj_list_file(file_name: &str, delimiter: char) -> (Array2<f64>, HashMap<String, usize>) {
+pub fn load_adj_list_file(
+    file_name: &str,
+    delimiter: char,
+) -> (Array2<f64>, HashMap<String, usize>) {
     let reader = BufReader::new(File::open(file_name).expect("Failed to open file"));
     let lines = reader.lines();
 
@@ -25,7 +26,7 @@ pub fn load_adj_list_file(file_name: &str, delimiter: char) -> (Array2<f64>, Has
     // Read nodes and edges
     for line in lines {
         if let Ok(line) = line {
-            if line.starts_with("#"){
+            if line.starts_with("#") {
                 continue;
             }
             let values: Vec<&str> = line.split(delimiter).collect();
@@ -36,7 +37,7 @@ pub fn load_adj_list_file(file_name: &str, delimiter: char) -> (Array2<f64>, Has
             }
             let nv = node_map.get(&v).unwrap().clone();
 
-            for i in 1..values.len(){
+            for i in 1..values.len() {
                 let neighbor = String::from(values[i]);
                 if !node_map.contains_key(&neighbor) {
                     node_map.insert(neighbor.clone(), n);
@@ -44,7 +45,6 @@ pub fn load_adj_list_file(file_name: &str, delimiter: char) -> (Array2<f64>, Has
                 }
                 let n2 = node_map.get(&neighbor).unwrap();
                 data.push((nv, *n2))
-                
             }
         }
     }
@@ -52,17 +52,13 @@ pub fn load_adj_list_file(file_name: &str, delimiter: char) -> (Array2<f64>, Has
     // Create adjacency matrix
     let mut adj_matrix = Array2::zeros((n, n));
 
-    for (u,v) in data {
-        adj_matrix[[u,v]] = 1.;
-        adj_matrix[[v,u]] = 1.;
+    for (u, v) in data {
+        adj_matrix[[u, v]] = 1.;
+        adj_matrix[[v, u]] = 1.;
     }
 
     (adj_matrix, node_map)
 }
-
-
-
-
 
 ///
 /// format
@@ -72,7 +68,12 @@ pub fn load_adj_list_file(file_name: &str, delimiter: char) -> (Array2<f64>, Has
 /// 1 2
 /// 2 0
 /// ```
-pub fn load_edges_file(file_name: &str, delimiter: char, ignore_weights: bool, ignore_first_line: bool) -> (Array2<f64>, HashMap<String, usize>) {
+pub fn load_edges_file(
+    file_name: &str,
+    delimiter: char,
+    ignore_weights: bool,
+    ignore_first_line: bool,
+) -> (Array2<f64>, HashMap<String, usize>) {
     if ignore_first_line {
         println!("Parsing file as classic format (first line: n m)");
     } else {
@@ -90,13 +91,13 @@ pub fn load_edges_file(file_name: &str, delimiter: char, ignore_weights: bool, i
     for line in lines {
         if let Ok(line) = line {
             nb_lines += 1;
-            if line.starts_with("#"){
+            if line.starts_with("#") {
                 continue;
             }
 
             let values: Vec<&str> = line.split(delimiter).collect();
             if values.len() >= 2 {
-                if nb_lines == 1{
+                if nb_lines == 1 {
                     if ignore_first_line {
                         continue;
                     }
@@ -121,7 +122,7 @@ pub fn load_edges_file(file_name: &str, delimiter: char, ignore_weights: bool, i
                 let n2 = node_map.get(&node2).unwrap();
 
                 let mut weight = 1.;
-                if values.len() >= 3 && ignore_weights == false{
+                if values.len() >= 3 && ignore_weights == false {
                     weight = values[2].parse().unwrap();
 
                     if weight < 0.0 || weight > 1.0 {
@@ -134,7 +135,6 @@ pub fn load_edges_file(file_name: &str, delimiter: char, ignore_weights: bool, i
             }
         }
     }
-
 
     // if ignore_first_line == false {
     //     let n_faisal_format = &labels[data[0].0].parse::<usize>();
@@ -153,20 +153,19 @@ pub fn load_edges_file(file_name: &str, delimiter: char, ignore_weights: bool, i
     //     }
     // }
 
-
     // Create adjacency matrix
     let mut adj_matrix = Array2::zeros((n, n));
 
-    for (u,v, weight) in data {
-        adj_matrix[[u,v]] = weight;
-        adj_matrix[[v,u]] = weight;
+    for (u, v, weight) in data {
+        adj_matrix[[u, v]] = weight;
+        adj_matrix[[v, u]] = weight;
     }
 
     let mut nb_isolated = 0;
     for u in 0..n {
         let mut is_isolated = true;
         for v in 0..n {
-            if adj_matrix[[u,v]] > 0.0 {
+            if adj_matrix[[u, v]] > 0.0 {
                 is_isolated = false;
                 break;
             }
@@ -181,17 +180,9 @@ pub fn load_edges_file(file_name: &str, delimiter: char, ignore_weights: bool, i
     (adj_matrix, node_map)
 }
 
-
-
-
-
-
-
-
-
-fn remove_edge(matrix: &mut Array2<f64>, u: usize, v: usize){
-    matrix[[u,v]] = 0.;
-    matrix[[v,u]] = 0.
+fn remove_edge(matrix: &mut Array2<f64>, u: usize, v: usize) {
+    matrix[[u, v]] = 0.;
+    matrix[[v, u]] = 0.
 }
 
 // fn add_edge(matrix: &mut Array2<f64>, u: usize, v: usize, weight: f64){
@@ -199,15 +190,11 @@ fn remove_edge(matrix: &mut Array2<f64>, u: usize, v: usize){
 //     matrix[[v,u]] = weight
 // }
 
-
-
-
-
 /**
-    Given the adjacency matrix, compute the neighbors of vertex `v` at distance at most `d`.
-    It is the closed neighborhood.
- */
-fn compute_neighbors(matrix: &Array2<f64>, v: usize, d: usize) -> Vec<usize>{
+   Given the adjacency matrix, compute the neighbors of vertex `v` at distance at most `d`.
+   It is the closed neighborhood.
+*/
+fn compute_neighbors(matrix: &Array2<f64>, v: usize, d: usize) -> Vec<usize> {
     let n = matrix.nrows();
     let mut neighbors = vec![v];
     let mut last = vec![v];
@@ -218,7 +205,7 @@ fn compute_neighbors(matrix: &Array2<f64>, v: usize, d: usize) -> Vec<usize>{
         // last.clear();
         for &w in &last {
             for u in 0..n {
-                if matrix[[w,u]] > 0. && !neighbors.contains(&u) {
+                if matrix[[w, u]] > 0. && !neighbors.contains(&u) {
                     neighbors.push(u);
                     new_last.push(u)
                 }
@@ -226,10 +213,9 @@ fn compute_neighbors(matrix: &Array2<f64>, v: usize, d: usize) -> Vec<usize>{
         }
         last = new_last;
     }
-    
-    neighbors 
-}
 
+    neighbors
+}
 
 fn compute_transition_matrix(matrix: &Array2<f64>, n: usize) -> Array2<f64> {
     let mut tm: Array2<f64> = Array2::zeros((n, n));
@@ -239,7 +225,7 @@ fn compute_transition_matrix(matrix: &Array2<f64>, n: usize) -> Array2<f64> {
     for i in 0..n {
         for j in 0..n {
             if i != j {
-                degree[i] += matrix[[i,j]];
+                degree[i] += matrix[[i, j]];
             }
         }
     }
@@ -247,7 +233,7 @@ fn compute_transition_matrix(matrix: &Array2<f64>, n: usize) -> Array2<f64> {
     for i in 0..n {
         for j in 0..n {
             if degree[i] > 0.0 {
-                tm[[i,j]] = matrix[[i,j]] / degree[i];
+                tm[[i, j]] = matrix[[i, j]] / degree[i];
             }
         }
     }
@@ -255,10 +241,13 @@ fn compute_transition_matrix(matrix: &Array2<f64>, n: usize) -> Array2<f64> {
     tm
 }
 
-
-
-fn best(matrix: &Array2<f64>, order: &Vec<(usize, f64)>, split_threshold: f64, verbose: usize
-    , size_sensitivity: f64) -> (f64, Vec<usize>) {
+fn best(
+    matrix: &Array2<f64>,
+    order: &Vec<(usize, f64)>,
+    split_threshold: f64,
+    verbose: usize,
+    size_sensitivity: f64,
+) -> (f64, Vec<usize>) {
     let n = matrix.shape()[0];
     let mut best_weight = std::f64::INFINITY;
     let mut best_cluster = Vec::new();
@@ -271,17 +260,17 @@ fn best(matrix: &Array2<f64>, order: &Vec<(usize, f64)>, split_threshold: f64, v
     let mut outdegree = vec![0.0; n];
     let mut c: f64 = 0.;
 
-    for &(i,_) in order.iter() {
+    for &(i, _) in order.iter() {
         in_cluster[i] = true;
         // Remove problematic pairs
-        problematic_pairs.retain(|&pair| !(matrix[[pair.0,i]] > 0.0 && matrix[[pair.1,i]] > 0.0));
-    
+        problematic_pairs.retain(|&pair| !(matrix[[pair.0, i]] > 0.0 && matrix[[pair.1, i]] > 0.0));
+
         // // Add new problematic pairs
         for &v in cluster.iter() {
-            if matrix[[i,v]] == 0.0 {
+            if matrix[[i, v]] == 0.0 {
                 let mut common = false;
                 for &w in neighbors[v].iter() {
-                    if matrix[[i,w]] > 0.0 {
+                    if matrix[[i, w]] > 0.0 {
                         common = true;
                         break;
                     }
@@ -299,12 +288,12 @@ fn best(matrix: &Array2<f64>, order: &Vec<(usize, f64)>, split_threshold: f64, v
             }
         }
         cluster.push(i);
-    
+
         // Handle single-node clusters
         if cluster.len() == 1 {
             outdegree[i] = 0.0;
             for j in 0..n {
-                outdegree[i] += matrix[[i,j]];
+                outdegree[i] += matrix[[i, j]];
             }
             if outdegree[i] > split_threshold {
                 c += split_threshold;
@@ -316,24 +305,26 @@ fn best(matrix: &Array2<f64>, order: &Vec<(usize, f64)>, split_threshold: f64, v
             // println!("outdegree {i} {} cost: {c}", outdegree[i]);
             continue;
         }
-    
+
         // Update outdegrees
         outdegree[i] = 0.0;
         for j in 0..n {
-            if  matrix[[i,j]] > 0.0 {
+            if matrix[[i, j]] > 0.0 {
                 if in_cluster[j] == false {
-                // if !cluster.contains(&j){
-                    outdegree[i] += matrix[[i,j]];
-                } else{
+                    // if !cluster.contains(&j){
+                    outdegree[i] += matrix[[i, j]];
+                } else {
                     neighbors[i].push(j);
                     neighbors[j].push(i);
-                    if outdegree[j] > split_threshold && outdegree[j] - matrix[[i,j]] <= split_threshold {
+                    if outdegree[j] > split_threshold
+                        && outdegree[j] - matrix[[i, j]] <= split_threshold
+                    {
                         c -= split_threshold;
-                        c += outdegree[j] - matrix[[i,j]];
+                        c += outdegree[j] - matrix[[i, j]];
                     } else if outdegree[j] <= split_threshold {
-                        c -= matrix[[i,j]];
+                        c -= matrix[[i, j]];
                     }
-                    outdegree[j] -= matrix[[i,j]];
+                    outdegree[j] -= matrix[[i, j]];
                 }
             }
         }
@@ -345,14 +336,13 @@ fn best(matrix: &Array2<f64>, order: &Vec<(usize, f64)>, split_threshold: f64, v
             c += outdegree[i]
         }
 
-    
         // Check if there are any problematic pairs
         if problematic_pairs.is_empty() {
             // Calculate cost
-            if verbose >= 2{
+            if verbose >= 2 {
                 println!("cluster: {cluster:?} cost: {c}");
             }
-            let cost = c* (cluster.len() as f64).powf(-size_sensitivity);
+            let cost = c * (cluster.len() as f64).powf(-size_sensitivity);
             if cost == 0.0 {
                 return (cost, cluster);
             }
@@ -366,45 +356,42 @@ fn best(matrix: &Array2<f64>, order: &Vec<(usize, f64)>, split_threshold: f64, v
             // println!("Non 2club: {}", cluster.len())
         }
     }
-    
+
     return (best_weight, best_cluster);
-    
 }
 
-
-
-
-fn transition_matrix_centered(vertex_neighbors_index: usize, tm_common: &Array2<f64>, neighbors: &Vec<usize>) -> Array2<f64> {
-    
+fn transition_matrix_centered(
+    vertex_neighbors_index: usize,
+    tm_common: &Array2<f64>,
+    neighbors: &Vec<usize>,
+) -> Array2<f64> {
     let d = neighbors.len();
     let mut tmc: Array2<f64> = Array2::zeros((d, d));
 
-    for ni in 0..d{
+    for ni in 0..d {
         let i = neighbors[ni];
         let i_index = i;
         let mut s = 0.;
 
-        for nj in 0..d{
+        for nj in 0..d {
             let j = neighbors[nj];
             let j_index = j;
-            tmc[[nj,ni]] = tm_common[[i_index,j_index]];
-            s += tmc[[nj,ni]];
+            tmc[[nj, ni]] = tm_common[[i_index, j_index]];
+            s += tmc[[nj, ni]];
         }
         tmc[[vertex_neighbors_index, ni]] += 1. - s;
     }
-    return tmc
+    return tmc;
 }
-
-
-
-
 
 // static mut DIFF: i128 = 0;
 
-
-
-
-fn compute_order(subset: &Vec<usize>, vertex: usize, tm_common: &Array2<f64>, verbose: usize) -> Vec<(usize, f64)> {  
+fn compute_order(
+    subset: &Vec<usize>,
+    vertex: usize,
+    tm_common: &Array2<f64>,
+    verbose: usize,
+) -> Vec<(usize, f64)> {
     let vertex_id = subset.iter().position(|&v| v == vertex).unwrap();
 
     // Compute centered transition matrix
@@ -431,21 +418,22 @@ fn compute_order(subset: &Vec<usize>, vertex: usize, tm_common: &Array2<f64>, ve
     //     let diff_iter = dist(&v_perfect, &v_iter);
     //     // println!("{:.5}", diff_iter);
 
-    //     unsafe { 
+    //     unsafe {
     //         // println!("{}", diff_exp - diff_iter);
     //         DIFF += d_approx - d_iter;
     //         println!("{:.5}", DIFF);
     //      };
     // }
 
-
     // Order subset by decreasing probability
-    let mut order: Vec<(usize, f64)> = subset.iter().enumerate()
+    let mut order: Vec<(usize, f64)> = subset
+        .iter()
+        .enumerate()
         .map(|(ni, &i)| (i, v_result[[ni, 0]]))
         .collect();
-    
+
     order.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-    
+
     if verbose >= 3 {
         println!("vertex: {vertex}");
         print_matrix(&tm);
@@ -453,24 +441,24 @@ fn compute_order(subset: &Vec<usize>, vertex: usize, tm_common: &Array2<f64>, ve
     }
 
     order
-
 }
 
-
-
 /// Pick a random sample of size k in (0..n-1) such that no indices are in assigned.
-/// If k > the number of unassigned vertices, then retain all the unassigned vertices 
-fn pick_unassigned_sample(rng: &mut ThreadRng, k: usize, unassigned: &HashSet<usize>) -> Vec<usize> {
-    let mut all_numbers: Vec<usize> =vec![];
+/// If k > the number of unassigned vertices, then retain all the unassigned vertices
+fn pick_unassigned_sample(
+    rng: &mut ThreadRng,
+    k: usize,
+    unassigned: &HashSet<usize>,
+) -> Vec<usize> {
+    let mut all_numbers: Vec<usize> = vec![];
     for v in unassigned {
         all_numbers.push(*v);
     }
     // all_numbers.retain(|&x| !assigned.contains(&x));
-    
-    if all_numbers.len() < k {
-        return all_numbers
-    }
 
+    if all_numbers.len() < k {
+        return all_numbers;
+    }
 
     all_numbers.shuffle(rng);
     let mut result = vec![];
@@ -479,8 +467,6 @@ fn pick_unassigned_sample(rng: &mut ThreadRng, k: usize, unassigned: &HashSet<us
     }
     result
 }
-
-
 
 fn clusters_size_stats(clusters: &Vec<Vec<usize>>) {
     let mut sorted_vectors: Vec<Vec<usize>> = clusters.clone();
@@ -494,12 +480,23 @@ fn clusters_size_stats(clusters: &Vec<Vec<usize>>) {
     println!("# Clusters size distribution");
     println!("- Average size: {:.2}", average_length);
     println!("- Max size: {}", sorted_vectors[0].len());
-    println!("- 10 maximal sizes: {:?}", sorted_vectors.iter().take(10).map( |x|  x.len()).collect::<Vec<usize>>());
-    println!("- Min size: {}", sorted_vectors[sorted_vectors.len()-1].len());
-    println!("- Nb clusters of size 1: {:?}", sorted_vectors.iter().filter(|x| x.len() == 1).count())
+    println!(
+        "- 10 maximal sizes: {:?}",
+        sorted_vectors
+            .iter()
+            .take(10)
+            .map(|x| x.len())
+            .collect::<Vec<usize>>()
+    );
+    println!(
+        "- Min size: {}",
+        sorted_vectors[sorted_vectors.len() - 1].len()
+    );
+    println!(
+        "- Nb clusters of size 1: {:?}",
+        sorted_vectors.iter().filter(|x| x.len() == 1).count()
+    )
 }
-
-
 
 /// Solves a clustering problem.
 ///
@@ -519,14 +516,15 @@ fn clusters_size_stats(clusters: &Vec<Vec<usize>>) {
 ///
 /// ```
 
-pub fn cluster_graph(mut matrix: Array2<f64>, 
-    verbose: usize, 
-    dist: usize, 
-    samples_size: usize, 
+pub fn cluster_graph(
+    mut matrix: Array2<f64>,
+    verbose: usize,
+    dist: usize,
+    samples_size: usize,
     split_threshold: f64,
-    size_sensitivity: f64) -> Vec<Vec<usize>> {
-
-    let mut rng = thread_rng();
+    size_sensitivity: f64,
+) -> Vec<Vec<usize>> {
+    let mut rng = rand::rng();
 
     let n = matrix.nrows();
     let mut unassigned: HashSet<usize> = (0..n).collect();
@@ -539,16 +537,15 @@ pub fn cluster_graph(mut matrix: Array2<f64>,
     let mut nb_clusters = 0;
     let mut clusters = vec![];
 
-    let mut isolated_vertices = vec!();
+    let mut isolated_vertices = vec![];
 
     let start_instant: Instant = Instant::now();
-
 
     loop {
         if verbose >= 1 {
             println!("-------");
         } else {
-            progress_bar(n-unassigned.len(), n, start_instant);
+            progress_bar(n - unassigned.len(), n, start_instant);
         }
 
         let mut mindeg = 100000;
@@ -561,7 +558,7 @@ pub fn cluster_graph(mut matrix: Array2<f64>,
         for &v in unassigned.iter() {
             let mut degree = 0;
             for j in 0..n {
-                if matrix[[v,j]] > 0.0 {
+                if matrix[[v, j]] > 0.0 {
                     degree += 1
                 }
             }
@@ -593,18 +590,16 @@ pub fn cluster_graph(mut matrix: Array2<f64>,
             continue;
         }
 
-
-
         let mut best_cost = std::f64::INFINITY;
         let mut best_cluster = vec![];
         let tm = compute_transition_matrix(&matrix, n);
 
         // Pick a sample
-        let mut sample = pick_unassigned_sample(&mut rng,  samples_size, &unassigned);
+        let mut sample = pick_unassigned_sample(&mut rng, samples_size, &unassigned);
 
         // Add minv and maxv if they are not in the sample
         if let Some(minv) = minv {
-            if sample.contains(&minv) == false{
+            if sample.contains(&minv) == false {
                 sample.push(minv);
             }
         }
@@ -626,9 +621,6 @@ pub fn cluster_graph(mut matrix: Array2<f64>,
                 best_cluster = cluster;
             }
         }
-
-        
-
 
         // Commented out part for checking every non-assigned vertex (as in original Python code)
         /*
@@ -665,12 +657,12 @@ pub fn cluster_graph(mut matrix: Array2<f64>,
             if best_cluster.len() == 1 {
                 for &v in &best_cluster {
                     for j in 0..n {
-                        if matrix[[v,j]] > 0. {
-                            c += matrix[[v,j]];
+                        if matrix[[v, j]] > 0. {
+                            c += matrix[[v, j]];
                             nb_deletions += 1;
-                            deletions_cost += matrix[[v,j]];
+                            deletions_cost += matrix[[v, j]];
                             if verbose >= 1 {
-                                println!("del {v} {j} {:.2}", matrix[[v,j]]);
+                                println!("del {v} {j} {:.2}", matrix[[v, j]]);
                             }
                             nb_deletions_cluster += 1;
                             remove_edge(&mut matrix, v, j);
@@ -685,8 +677,8 @@ pub fn cluster_graph(mut matrix: Array2<f64>,
                 // Compute the out degree
                 let mut d = 0.0;
                 for j in 0..n {
-                    if matrix[[v,j]] > 0. && !best_cluster.contains(&j){
-                        d += matrix[[v,j]];
+                    if matrix[[v, j]] > 0. && !best_cluster.contains(&j) {
+                        d += matrix[[v, j]];
                     }
                 }
 
@@ -694,7 +686,7 @@ pub fn cluster_graph(mut matrix: Array2<f64>,
                     // Split v
                     nb_splits_cluster += 1;
                     nb_splits += 1;
-                    c += split_threshold; 
+                    c += split_threshold;
                     if verbose >= 1 {
                         println!("spl {v}");
                     }
@@ -706,13 +698,13 @@ pub fn cluster_graph(mut matrix: Array2<f64>,
                     unassigned.remove(&v);
                     for j in 0..n {
                         if !best_cluster.contains(&j) {
-                            c += matrix[[v,j]];
-                            if matrix[[v,j]] > 0. {
+                            c += matrix[[v, j]];
+                            if matrix[[v, j]] > 0. {
                                 nb_deletions += 1;
                                 nb_deletions_cluster += 1;
-                                deletions_cost += matrix[[v,j]];
+                                deletions_cost += matrix[[v, j]];
                                 if verbose >= 1 {
-                                    println!("del {v} {j} {:.2}", matrix[[v,j]]);
+                                    println!("del {v} {j} {:.2}", matrix[[v, j]]);
                                 }
                             }
                         }
@@ -726,8 +718,6 @@ pub fn cluster_graph(mut matrix: Array2<f64>,
                 println!("Nb deletions: {nb_deletions_cluster}");
                 println!("Unassigned vertices remaining: {}/{n}", unassigned.len());
             }
-            
-            
 
             nb_clusters += 1;
             clusters.push(best_cluster);
@@ -735,7 +725,6 @@ pub fn cluster_graph(mut matrix: Array2<f64>,
     }
 
     println!("Clustering ended successfully");
-
 
     println!("# Parameters");
     println!("- Size sensitivity: {size_sensitivity}");
@@ -746,27 +735,23 @@ pub fn cluster_graph(mut matrix: Array2<f64>,
     println!("# Results");
     println!("- Nb clusters: {}", clusters.len());
     // println!("Nb_operations: {c}");
-    println!("- Nb splits: {nb_splits}" );
-    println!("- Nb deletions: {nb_deletions}",  );
-    println!("- Deletions Cost: {deletions_cost:.3}",  );
-    println!("- Overlapping: {:.3}", 1.+(nb_splits as f64)/(n as f64));
+    println!("- Nb splits: {nb_splits}");
+    println!("- Nb deletions: {nb_deletions}",);
+    println!("- Deletions Cost: {deletions_cost:.3}",);
+    println!("- Overlapping: {:.3}", 1. + (nb_splits as f64) / (n as f64));
 
     clusters_size_stats(&clusters);
 
     clusters
 }
 
-
-
-
-
-
 pub fn run_cluster_solver(cli: Cli) {
-
-
-    
-    let (matrix, node_indices) = load_edges_file(&cli.data_path, ' ', cli.ignore_weights, !cli.simple_file_format);
-
+    let (matrix, node_indices) = load_edges_file(
+        &cli.data_path,
+        ' ',
+        cli.ignore_weights,
+        !cli.simple_file_format,
+    );
 
     // Compute the reverse node map
     let mut node_labels = HashMap::new();
@@ -778,8 +763,8 @@ pub fn run_cluster_solver(cli: Cli) {
     let n = matrix.shape()[0];
     let mut m = 0;
     for i in 0..n {
-        for j in i+1..n{
-            if matrix[[i,j]] > 0. {
+        for j in i + 1..n {
+            if matrix[[i, j]] > 0. {
                 m += 1;
             }
         }
@@ -787,10 +772,15 @@ pub fn run_cluster_solver(cli: Cli) {
 
     println!("n={n} m={m}");
     println!("Start clustering...");
-    let clusters = cluster_graph(matrix, cli.verbose, 2, cli.samples_size, cli.split_threshold, cli.size_sensitivity);
+    let clusters = cluster_graph(
+        matrix,
+        cli.verbose,
+        2,
+        cli.samples_size,
+        cli.split_threshold,
+        cli.size_sensitivity,
+    );
 
-
-    
     let results_path = cli.data_path.to_string() + ".clusters";
     let output_file = File::create(results_path.clone()).expect("Failed to create file");
     let mut writer = BufWriter::new(output_file);
@@ -803,6 +793,4 @@ pub fn run_cluster_solver(cli: Cli) {
     }
 
     println!("Clusters details written in {results_path}");
-
 }
-

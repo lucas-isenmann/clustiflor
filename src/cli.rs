@@ -1,4 +1,3 @@
-
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -12,11 +11,11 @@ pub struct Cli {
     #[arg(value_name = "DATA_PATH")]
     pub data_path: String,
 
-    /// Split threshold: 
+    /// Split threshold:
     #[arg(short, long, default_value_t = 1.0)]
     pub split_threshold: f64,
 
-     /// Size sensitivity: 
+    /// Size sensitivity:
     #[arg(long, default_value_t = 1.0)]
     pub size_sensitivity: f64,
 
@@ -24,11 +23,11 @@ pub struct Cli {
     #[arg(long, default_value_t = 10)]
     pub samples_size: usize,
 
-    /// Ignore weights (all weights are set to 1) 
+    /// Ignore weights (all weights are set to 1)
     #[arg(short, long)]
     pub ignore_weights: bool,
 
-    /// Simple file format 
+    /// Simple file format
     #[arg(long)]
     pub simple_file_format: bool,
 
@@ -49,14 +48,9 @@ pub struct Cli {
     #[arg(long)]
     pub matrix_labels: bool,
 
-
-
-
     /// Verbose: 0 means print nothing,
     /// 1 prints details for each iteration,
-    /// 2 prints a lot of details 
+    /// 2 prints a lot of details
     #[arg(short, long, default_value_t = 0)]
     pub verbose: usize,
-
-   
 }
