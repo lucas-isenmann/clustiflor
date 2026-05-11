@@ -1,6 +1,7 @@
 pub mod biclusters;
 pub mod common;
 pub mod clustering;
+pub mod cli;
 
 use std::path::Path;
 use std::time::{Instant};
@@ -15,8 +16,8 @@ use rand::Rng;
 use walkdir::WalkDir;
 
 use crate::clustering::cluster_algo::{run_cluster_solver};
-use crate::common::{print_error, Cli};
-
+use crate::common::print_error;
+use crate::cli::Cli;
 
 
 fn gen_batch_v2(batch_size: usize){
@@ -201,8 +202,10 @@ fn run_comparison(){
 fn run_bicluster_one_sided(cli: Cli){
 
     if cli.matrix_format {
-        let wadj =  WeightedBiAdjacency::load_wadj_from_matrix(&cli.data_path);
+        let wadj =  WeightedBiAdjacency::load_wadj_from_matrix(&cli.data_path, cli.split_rows, &cli.sep, cli.matrix_labels).expect("Failed to load file");
         wadj.print_wadj_stats();
+        println!("Runing Bicluster One Sided");
+
         let mut wadj2 = wadj.clone();
         let (biclusters, algo_stats) = bicluster_one_sided(&mut wadj2, cli.size_sensitivity, cli.split_threshold, cli.matrix_power, cli.verbose);
         let results_path = cli.data_path.to_string() + ".biclusters";
@@ -294,7 +297,9 @@ fn process_directory(dir_path: &str, cli: Cli) {
         let file_path = entry.path();
         println!("Processing file: {:?}", file_path);
         
-        let wadj = WeightedBiAdjacency::load_wadj_from_matrix(file_path.to_str().unwrap());
+        let wadj = WeightedBiAdjacency::load_wadj_from_matrix(file_path.to_str().unwrap(), cli.split_rows, &cli.sep, cli.matrix_labels).expect("Failed to load matrix");
+        
+        
         wadj.print_wadj_stats();
         
         if let Some(bc) =wadj.get_ground_truth(){
@@ -321,10 +326,12 @@ fn process_directory(dir_path: &str, cli: Cli) {
     }
 }
 
+
+
 fn process_single_file(file_path: &str, cli: Cli) {
     println!("Processing single file: {}", file_path);
     
-    let wadj = WeightedBiAdjacency::load_wadj_from_matrix(file_path);
+    let wadj = WeightedBiAdjacency::load_wadj_from_matrix(file_path, cli.split_rows, &cli.sep, cli.matrix_labels).expect("Failed to load matrix");
     wadj.print_wadj_stats();
 
     if let Some(bc) = wadj.get_ground_truth(){
@@ -365,7 +372,11 @@ fn main() {
 
 
 
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
+
+    cli.sep = cli.sep.replace(r"\t", "\t")
+       .replace(r"\n", "\n")
+       .replace(r"\r", "\r");
     
     match cli.cluster_type.as_str() {
         "cluster" | "bicluster" | "onesided-bicluster" => {

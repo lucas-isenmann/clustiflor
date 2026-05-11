@@ -23,6 +23,9 @@ pub struct WeightedBiAdjacency {
 
 
 impl WeightedBiAdjacency {
+    ///
+    /// By default labels are from 0 to n-1 and 0 to m-1
+    /// But you can modify them after creating the object
     pub fn new(n: usize, m: usize) -> Self {
         let mut labels_a = vec![];
         let mut nodes_a_map = HashMap::new();
@@ -405,19 +408,108 @@ impl WeightedBiAdjacency {
 
 
 
+
+    /// Loads a weighted bipartite adjacency matrix from a text file.
+    ///
+    /// The input file represents a matrix where rows correspond to vertices
+    /// of partition `A` and columns correspond to vertices of partition `B`.
+    ///
+    /// Non-zero values are interpreted as weighted edges.
+    ///
+    /// # Matrix format
+    ///
+    /// With `labels = true`, the first row contains column labels and the
+    /// first column of each subsequent row contains the row label.
+    ///
+    /// Example:
+    ///
+    /// ```text
+    /// X,a,b,c
+    /// r1,0,0,1
+    /// r2,1,1,1
+    /// r3,1,0,1
+    /// ```
     /// 
+    /// then 
+    /// `wadj.labels_a == ["r1", "r2", "r3"]`
+    ///
+    /// With `labels = false`, all entries are interpreted as numeric values
+    /// and vertex labels are automatically generated from indices.
+    ///
+    /// Example:
+    ///
+    /// ```text
+    /// 0,0,1
+    /// 1,1,1
+    /// ```
     /// 
-    pub fn load_wadj_from_matrix(file_path: &str) -> WeightedBiAdjacency {
-        let file = File::open(file_path).expect("Failed to open file");
-        let reader = BufReader::new(file);
+    /// then
+    /// `wadj.labels_a == ["0", "1"]`
+    /// `wadj.labels_b == ["2", "3", "4"]`
+    ///
+    /// # Bicluster definitions
+    ///
+    /// Lines beginning with `BC` define ground-truth biclusters.
+    ///
+    /// Example:
+    ///
+    /// ```text
+    /// BC 0,1,2
+    /// ```
+    ///
+    /// Empty lines and lines starting with `#` are ignored.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path to the matrix file.
+    /// * `transpose` - If `true`, swaps rows and columns in the resulting graph.
+    /// * `separator` - Cell separator used in the file (e.g. `","` or `"\t"`).
+    /// * `labels` - Whether the file contains row/column labels.
+    ///
+    /// # Panics
+    ///
+    /// Panics if:
+    ///
+    /// - a matrix value cannot be parsed as `f64`,
+    /// - a bicluster member cannot be parsed as `usize`.
+    ///
+    /// # Returns
+    ///
+    /// A [`WeightedBiAdjacency`] 
+    pub fn parse_wadj_from_reader<R: BufRead>(
+        reader: R,
+        transpose: bool,
+        separator: &str,
+        labels: bool,
+    ) -> std::io::Result<WeightedBiAdjacency> {
+
+        println!("Matrix Parser");
+        println!("separator: {separator}");
 
         let mut n = 0;
         let mut m = 0;
         let mut edges: Vec<(usize, usize, f64)> = vec![];
         let mut biclusters: Vec<Vec<usize>> = vec![];
 
+        let mut col_labels = vec![];
+        let mut row_labels = vec![];
+
+        let mut line_nb = 0;
+
         for line in reader.lines() {
             if let Ok(line) = line {
+
+                // First line will determine the column labels if `labels` is true
+                if line_nb == 0 {
+                    if labels {
+                        let values: Vec<&str> = line.split(separator).collect();
+                        for j in 1..values.len() {
+                            col_labels.push(values[j].to_string());
+                        }
+                        line_nb = 1;
+                        continue;
+                    }
+                }
 
                 // Skip empty lines and comments
                 if line.is_empty() || line.starts_with('#') {
@@ -438,29 +530,88 @@ impl WeightedBiAdjacency {
                     continue;
                 }
 
-                let values: Vec<&str> = line.split(" ").collect();
-                m = values.len();
+                // Parse data row
+                let values: Vec<&str> = line.split(separator).collect();
+                
+                if labels {
+                    m = values.len()-1;
+                    row_labels.push(values[0].to_string());
 
-                for j in 0..m {
-                    let weight: f64 = values[j].parse().unwrap();
-                    if weight != 0. {
-                        edges.push((n, j, weight));
+                    for j in 1..(m+1) {
+                        let weight: f64 = values[j].parse().unwrap();
+                        if weight != 0. {
+                            edges.push((n, j-1, weight));
+                        }
+                    }
+                } else {
+                    m = values.len();
+                    println!("{n} {m} {values:?}");
+
+                    for j in 0..m {
+                        let weight: f64 = values[j].parse().unwrap();
+                        if weight != 0. {
+                            edges.push((n, j, weight));
+                        }
                     }
                 }
+                
                 n += 1;
+
+                line_nb += 1;
 
             }
         }
 
-        let mut wadj = WeightedBiAdjacency::new(n, m);
-        for &(a,b,w) in edges.iter() {
-            wadj.add_edge(a, b, w);
+
+        // Create a WeightedBiAdjacency from the edges and labels
+        // If argument transpose is false, then the gathered edges are in the right order
+        if transpose == false {
+            let mut wadj = WeightedBiAdjacency::new(n, m);
+            for &(a,b,w) in edges.iter() {
+                wadj.add_edge(a, b, w);
+            }
+
+            if labels {
+                wadj.labels_a = row_labels;
+                wadj.labels_b = col_labels;
+            }
+            
+            wadj.set_ground_biclusters(Biclust::from_biclusters(n, m, &biclusters));
+
+            Ok(wadj)
+        } else {
+            let mut wadj = WeightedBiAdjacency::new(m, n);
+            for &(a,b,w) in edges.iter() {
+                wadj.add_edge(b,a, w);
+            }
+
+            if labels {
+                wadj.labels_a = col_labels;
+                wadj.labels_b = row_labels;
+            }
+            
+            wadj.set_ground_biclusters(Biclust::from_biclusters(m, n, &biclusters));
+
+            Ok(wadj)
         }
-
-        wadj.set_ground_biclusters(Biclust::from_biclusters(n, m, &biclusters));
-
-        wadj
     }
+
+
+
+
+
+    pub fn load_wadj_from_matrix(
+        file_path: &str,
+        transpose: bool,
+        separator: &str,
+        labels: bool,
+    ) -> std::io::Result<WeightedBiAdjacency> {
+        let file = File::open(file_path)?;
+        let reader = BufReader::new(file);
+
+        WeightedBiAdjacency::parse_wadj_from_reader(reader, transpose, separator, labels)
+    }
+
 
 
 
@@ -592,7 +743,6 @@ fn shuffle<T>(vec: &mut Vec<T>) {
 
 
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -610,5 +760,116 @@ mod tests {
         WeightedBiAdjacency::load_wadj_from_csv("src/test_data/bad_weight.txt", " ", true);
     }
 
+
+
+    use std::io::Cursor;
+
+    #[test]
+    fn parse_matrix_with_labels() {
+        let input = "\
+X,a,b,c
+r1,0,1,0
+r2,1,0,2
+BC 0,1
+";
+
+        let reader = Cursor::new(input);
+
+        let wadj = WeightedBiAdjacency::parse_wadj_from_reader(
+            reader,
+            false,
+            ",",
+            true,
+        ).unwrap();
+
+        assert_eq!(wadj.n, 2);
+        assert_eq!(wadj.m, 3);
+
+        assert_eq!(wadj.labels_a, vec!["r1", "r2"]);
+        assert_eq!(wadj.labels_b, vec!["a", "b", "c"]);
+
+        // check edges etc.
+    }
+
+
+    #[test]
+    fn parse_matrix_with_labels_and_transpose() {
+        let input = "\
+X,a,b,c
+r1,0,1,0
+r2,1,0,2
+BC 0,1
+";
+
+        let reader = Cursor::new(input);
+
+        let wadj = WeightedBiAdjacency::parse_wadj_from_reader(
+            reader,
+            true,
+            ",",
+            true,
+        ).unwrap();
+
+        assert_eq!(wadj.n, 3);
+        assert_eq!(wadj.m, 2);
+
+        assert_eq!(wadj.labels_a, vec!["a", "b", "c"]);
+        assert_eq!(wadj.labels_b, vec!["r1", "r2"]);
+
+        // check edges etc.
+    }
+
+
+    #[test]
+    fn parse_matrix_with_no_labels() {
+        let input = "\
+0,1,0
+1,0,1
+BC 0,1
+";
+
+        let reader = Cursor::new(input);
+
+        let wadj = WeightedBiAdjacency::parse_wadj_from_reader(
+            reader,
+            false,
+            ",",
+            false,
+        ).unwrap();
+
+        assert_eq!(wadj.n, 2);
+        assert_eq!(wadj.m, 3);
+
+        assert_eq!(wadj.labels_a, vec!["0", "1"]);
+        assert_eq!(wadj.labels_b, vec!["2", "3", "4"]);
+
+    }
+
+
+    #[test]
+    fn parse_matrix_with_no_labels_and_transpose() {
+        let input = "\
+0,1,0
+1,0,1
+BC 0,1
+";
+
+        let reader = Cursor::new(input);
+
+        let wadj = WeightedBiAdjacency::parse_wadj_from_reader(
+            reader,
+            true,
+            ",",
+            false,
+        ).unwrap();
+
+        assert_eq!(wadj.n, 3);
+        assert_eq!(wadj.m, 2);
+
+        assert_eq!(wadj.labels_a, vec!["0", "1", "2"]);
+        assert_eq!(wadj.labels_b, vec!["3", "4"]);
+
+    }
+    
     
 }

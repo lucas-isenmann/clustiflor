@@ -1,0 +1,35 @@
+# Bipartite graphs statistics
+- Number of rows: 0
+- Number of cols: 4
+
+# Hyperparameters
+- size sensivity: 1
+- split threshold: 1
+- markov power: 16
+
+# Results
+- Adjusted errors ratio: NaN
+- Nb isolated rows: 0
+- Nb isolated cols: 4
+- Nb operations: 0.000
+- Nb splits: 0
+- Nb additions: 0.000
+- Nb deletions: 0.000
+- Number of biclusters: 1
+- Row Overlapping: NaN
+
+# Columns Partition
+
+0 1 1 1 1 1 0 0 1 1 2 0 0 1 1  3 0 0 1 1 
+
+# Biclusters
+
+0 1 1 1 1 1 0 0 1 1 2 0 0 1 1  3 0 0 1 1 
+
+
+# Bicluster memberships
+
+Col 0 0 1 1 1 1: [0]
+Col 1 1 0 0 1 1: [0]
+Col 2 2 0 0 1 1 : [0]
+Col 3 3 0 0 1 1: [0]

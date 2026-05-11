@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::env;
 use ndarray::Array2;
 use rand::rngs::ThreadRng;
 
@@ -10,8 +9,8 @@ use std::collections::HashSet;
 use rand::{seq::SliceRandom, thread_rng};
 use std::time::{Instant};
 
-use crate::common::{approx_statio_distrib_by_indegree, compute_statio_distrib_by_exp, compute_statio_distrib_by_iter, compute_statio_distrib_by_pivot, dist, print_matrix, progress_bar, Cli};
-
+use crate::common::{approx_statio_distrib_by_indegree, compute_statio_distrib_by_exp, compute_statio_distrib_by_iter, compute_statio_distrib_by_pivot, dist, print_matrix, progress_bar};
+use crate::cli::Cli;
 
 
 
@@ -560,23 +559,23 @@ pub fn cluster_graph(mut matrix: Array2<f64>,
 
         // Search min/max degree and isolated vertices
         for &v in unassigned.iter() {
-                let mut degree = 0;
-                for j in 0..n {
-                    if matrix[[v,j]] > 0.0 {
-                        degree += 1
-                    }
+            let mut degree = 0;
+            for j in 0..n {
+                if matrix[[v,j]] > 0.0 {
+                    degree += 1
                 }
-                if degree == 0 {
-                    isolated_vertices.push(v);
-                }
-                if degree > maxdeg {
-                    maxdeg = degree;
-                    maxv = Some(v);
-                }
-                if degree < mindeg {
-                    mindeg = degree;
-                    minv = Some(v);
-                }
+            }
+            if degree == 0 {
+                isolated_vertices.push(v);
+            }
+            if degree > maxdeg {
+                maxdeg = degree;
+                maxv = Some(v);
+            }
+            if degree < mindeg {
+                mindeg = degree;
+                minv = Some(v);
+            }
         }
 
         // Cluster isolated vertices

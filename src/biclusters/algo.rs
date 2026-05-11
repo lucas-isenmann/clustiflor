@@ -1,10 +1,13 @@
 use core::f64;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 use ndarray::Array2;
+use rand::rngs::ThreadRng;
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 
 use crate::biclusters::biclust::Biclust;
-use crate::common::{print_matrix, progress_bar};
+use crate::common::{compute_statio_distrib_by_iter, print_matrix, progress_bar};
 use super::common::transition_matrix_b;
 use super::weighted_biadj::WeightedBiAdjacency;
 
@@ -56,23 +59,23 @@ fn compute_order(wadj: &WeightedBiAdjacency, m: usize, vertex: usize, tm_common:
             }
         }
     }
-    let d = neighbors.len();
+    
     let mut ctm = centered_transition_matrix(tm_common, &neighbors).t().into_owned();
     if verbose >= 2 {
         println!("Centered to {vertex} transition matrix:");
         print_matrix(&ctm);
     }
 
+    let v_result = compute_statio_distrib_by_iter(&ctm, 16, verbose);
 
-    for _ in 0..markov_power {
-        ctm = ctm.dot(&ctm);
-    }
-    
-
-    let mut v = Array2::zeros((d, 1));
-    v[[0, 0]] = 1.0;
-    
-    let v_result = ctm.dot(&v);
+    // By exponentiation
+    // let d = neighbors.len();
+    // for _ in 0..markov_power {
+    //     ctm = ctm.dot(&ctm);
+    // }
+    // let mut v = Array2::zeros((d, 1));
+    // v[[0, 0]] = 1.0;
+    // let v_result = ctm.dot(&v);
 
     // Order subset by decreasing probability
     let mut order: Vec<(usize, f64)> = neighbors.iter().enumerate()
@@ -240,11 +243,39 @@ pub struct AlgoStats {
 }
 
 
+/// Pick a random sample of size k in (0..n-1) such that no indices are in assigned.
+/// If k > the number of unassigned vertices, then retain all the unassigned vertices 
+fn pick_unassigned_sample(rng: &mut ThreadRng, k: usize, unassigned: &HashSet<usize>) -> Vec<usize> {
+    let mut all_numbers: Vec<usize> =vec![];
+    for v in unassigned {
+        all_numbers.push(*v);
+    }
+    // all_numbers.retain(|&x| !assigned.contains(&x));
+    
+    if all_numbers.len() < k {
+        return all_numbers
+    }
 
+
+    all_numbers.shuffle(rng);
+    let mut result = vec![];
+    for i in 0..k {
+        result.push(all_numbers[i]);
+    }
+    result
+}
+
+
+
+/// Main one sided biclustering function
+/// 
+/// Partition columns
+/// 
+/// Rows may overlap
 pub fn bicluster_one_sided( wadj: &mut WeightedBiAdjacency, cost_coef: f64, split_threshold: f64, markov_power: usize, verbose: usize) -> (Biclust, AlgoStats) {
 
     let min_error = wadj.compute_min_error();
-
+    let mut rng = thread_rng();
 
     let n = wadj.get_n();
     let m = wadj.get_m();
@@ -289,7 +320,31 @@ pub fn bicluster_one_sided( wadj: &mut WeightedBiAdjacency, cost_coef: f64, spli
         }
         if has_isolated_b_vertices {
             continue;
-            
+        }
+
+
+        // Search min/max degree
+        let mut mindeg = 100000;
+        let mut minv = None;
+        let mut maxdeg = 0;
+        let mut maxv = None;
+
+        for v in  0..m {
+            if assigned[v]{
+                continue;
+            }
+            let degree = wadj.col_degree(v);
+            if degree > maxdeg {
+                maxdeg = degree;
+                maxv = Some(v);
+            }
+            if degree < mindeg {
+                mindeg = degree;
+                minv = Some(v);
+            }
+        }
+        if verbose >= 0 {
+            println!("vertex {minv:?} of degree {mindeg}, vertex {maxv:?} of degree {maxdeg}");
         }
 
         // Compute the transition matrix between B vertices
@@ -304,11 +359,32 @@ pub fn bicluster_one_sided( wadj: &mut WeightedBiAdjacency, cost_coef: f64, spli
         let mut best_cost = f64::NAN;
 
 
-        // Find the B_cluster with minimal cost
+        let mut unassigned: HashSet<usize> = (0..0).collect();
         for b in 0..m {
-            if assigned[b] {
-                continue;
+            if assigned[b] == false {
+                unassigned.insert(b);
             }
+        }
+
+        // Pick a sample
+        let mut sample = pick_unassigned_sample(&mut rng,  1, &unassigned);
+
+        // Add minv and maxv if they are not in the sample
+        if let Some(minv) = minv {
+            if sample.contains(&minv) == false{
+                sample.push(minv);
+            }
+        }
+        if let Some(maxv) = maxv {
+            if sample.contains(&maxv) == false {
+                sample.push(maxv);
+            }
+        }
+
+        let mut best_col = 0;
+
+        // Find the B_cluster with minimal cost
+        for b in sample {
 
             // Compute order of b
             let mut d = 0.;
@@ -321,6 +397,8 @@ pub fn bicluster_one_sided( wadj: &mut WeightedBiAdjacency, cost_coef: f64, spli
                 } else {
                     compute_order(&wadj, m, b, &tm, markov_power, verbose)
                 };
+
+            println!("Col: {b} deg: {} B-neighbors: {}", wadj.col_degree(b), order.len());
             if verbose >= 2 {
                 println!("Step 1: compute order of {b}");
                 println!("{order:?}");
@@ -331,6 +409,7 @@ pub fn bicluster_one_sided( wadj: &mut WeightedBiAdjacency, cost_coef: f64, spli
             if best_cost.is_nan() || cost < best_cost {
                 best_cost = cost;
                 best_cluster = b_cluster.clone();
+                best_col = b;
             }
             if verbose >= 2 {
                 println!("Step 2: best_cost: {best_cost}, cluster: {best_cluster:?}");
@@ -339,28 +418,45 @@ pub fn bicluster_one_sided( wadj: &mut WeightedBiAdjacency, cost_coef: f64, spli
 
 
         if best_cluster.len() == 0 { // This case should not happen
-            break
+            panic!("best_cluster is empty");
         }
         
         for &b in best_cluster.iter() {
             if assigned[b] {
-                println!("bug {b} already assigned");
+                panic!("col {b} already assigned");
             }
             assigned[b] = true;
             nb_assigned += 1;
         }
         b_clusters.push(best_cluster.clone());
 
-        if verbose >= 1 {
-            println!("Cols cluster: {} size: {} cols: {best_cluster:?}", b_clusters.len()-1, {best_cluster.len()});
+        if verbose >= 0 {
+            best_cluster.sort();
+            println!("--- New Bicluster n° {}", b_clusters.len());
+            println!("Discoverd from {best_col}");
+            println!("Cols indices:  {best_cluster:?}");
+            let mut cols_labels = vec![];
+            for i in 0..best_cluster.len() {
+                cols_labels.push(wadj.get_label(n+best_cluster[i]));
+            }
+            println!("Cols labels: [{}]", cols_labels.join(" "));
+            println!("Nb cols:  {}", best_cluster.len());
         }
+
         let (a_cluster, del, add, spl )= apply_operations(n, m, best_cluster, wadj, split_threshold, verbose); 
         nb_deletions += del;
         nb_additions += add;
         nb_splits += spl;
         nb_operations += del + add + spl;
-        if verbose >= 1{
-            println!("Rows cluster: {:?}", a_cluster);
+
+        if verbose >= 0 {
+            println!("Rows indices: {a_cluster:?}");
+            let mut rows_labels = vec![];
+            for i in 0..a_cluster.len() {
+                rows_labels.push(wadj.get_label(a_cluster[i]));
+            }
+            println!("Rows labels: [{}]", rows_labels.join(" "));
+            println!("Nb rows: {}", rows_labels.len());
             println!("Deletions: {del}");
             println!("Additions: {add}");
             println!("Splits: {spl}");

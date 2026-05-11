@@ -44,15 +44,22 @@ fn centered_transition_matrix2(  tm: &Array2<f64>, set1: &Vec<usize>, set2: &Vec
     let d2 = set2.len();
     let mut ctm = Array2::zeros((d1+d2,d1+d2));
 
+    // println!("create ctm {:?}", ctm.dim());
     for ni in 0..d1 {
+        let mut s = 0.;
         let i = set1[ni];
         for nj in 0..d1 {
             let j = set1[nj];
             ctm[[ni,nj]] = tm[[i,j]];
+            s += tm[[i,j]];
         }
         for nj in 0..d2 {
             let j = set2[nj];
             ctm[[ni,d1+nj]] = tm[[i,j]];
+            s += tm[[i,j]];
+        }
+        if s > 1.0001 || s < 0.999 {
+            println!("{ni} {s}");
         }
     }
     for ni in 0..d2 {
@@ -71,20 +78,55 @@ fn centered_transition_matrix2(  tm: &Array2<f64>, set1: &Vec<usize>, set2: &Vec
 
         let p = (1.-s)/ ( d1 as f64);
         for nj in 0..d1 {
-            ctm[[ni,nj]] += p;
+            ctm[[d1+ni,nj]] += p;
+        }
+
+        let mut s = 0.;
+        for k in 0..(d1+d2){
+            s += ctm[[d1+ni,k]];
+
+        }
+        if s > 1.0001 || s < 0.999 {
+            println!("{ni} {s}");
         }
     }
+
     ctm
 }
 
 
+fn check_tm(tm: &Array2<f64>) -> bool{
+    println!("check {:?}", tm.dim());
+    for i in 0..tm.dim().0{
+        let mut s = 0.;
+        for j in 0..tm.dim().0{
+            s += tm[[i,j]];
+        }
+        if s > 1.0001 {
+            panic!("bug {i} {s}");
+            return false
+        } else if s < 0.99 && s > 0.001 {
+            println!("bug {s}");
+            return false;
+        }
+    }
+    true
+}
+
 fn centered_ordering(tm: &Array2<f64>, set1: Vec<usize>, set2: Vec<usize>, markov_power: usize) -> Vec<(usize, f64)>{
     let d1 = set1.len();
     let d3 = set2.len();
+    // println!("==========================");
+    
     let mut ctm = centered_transition_matrix2(tm, &set1, &set2).t().into_owned();
+    // print_matrix(&ctm);
+    // check_tm(&ctm);
+    
     for _ in 0..markov_power {
         ctm = ctm.dot(&ctm);
     }
+    // println!("===AAAAAAAAAAAAAAAAAAAAAAAAAA===");
+    // print_matrix(&ctm);
 
     let mut v = Array2::zeros((d1+d3, 1));
     for i in 0..d1 {
@@ -98,6 +140,7 @@ fn centered_ordering(tm: &Array2<f64>, set1: Vec<usize>, set2: Vec<usize>, marko
     let mut ordered_set: Vec<(usize, f64)> = set.iter().enumerate()
         .map(|(ni, &i)| (i, v_result[[ni, 0]]))
         .collect();
+    // println!("{ordered_set:?}");
     ordered_set.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
     ordered_set
 }
@@ -207,7 +250,7 @@ fn best_cluster_col(wadj: &WeightedBiAdjacency, n: usize, m: usize, col: usize, 
     let c0: Vec<usize> = vec![col];
     let c2: Vec<usize> = col_2neighbors.iter().map(|x| *x).collect();
     let cols_order = centered_ordering(cols_tm, c0, c2, markov_power);
-    // println!("col: {col}, cols_order: {cols_order:?}");
+    
 
 
     // Rows is the concatenation of row_1 and row_3
@@ -593,6 +636,7 @@ pub fn bicluster_two_sided( wadj: &mut WeightedBiAdjacency,
             println!("nb edges: {nb_edges}");
         }
 
+
         // Compute the transition matrix between B vertices
         let cols_tm = transition_matrix_b(wadj, n, m);
         let rows_tm = rows_transition_matrix(wadj, n, m);
@@ -621,6 +665,7 @@ pub fn bicluster_two_sided( wadj: &mut WeightedBiAdjacency,
             }
         }
 
+
         for row in 0..n {
             if assigned[row] { continue; }
             let (rows_cluster,cols_cluster, cost) = best_cluster_row(wadj, n, m, row, &rows_tm, &cols_tm, markov_power, split_threshold, cost_coef, verbose);
@@ -630,6 +675,7 @@ pub fn bicluster_two_sided( wadj: &mut WeightedBiAdjacency,
                 best_cols_cluster = cols_cluster.clone();
             }
         }
+
 
         // V1
         // Find the B_cluster with minimal cost
