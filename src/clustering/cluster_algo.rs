@@ -622,25 +622,7 @@ pub fn cluster_graph(
             }
         }
 
-        // Commented out part for checking every non-assigned vertex (as in original Python code)
-        /*
-        for &v in original_vertices.iter() {
-            if !assigned.contains(&v) {
-                let x = compute_2neighbors(&graph, v);
-                let order = compute_order(&x, v, &tm, &original_vertices);
-                let (cost, cluster) = best(&graph, order.clone());
-                if cost == 0.0 {
-                    best_cost = 0.0;
-                    best_cluster = cluster;
-                    break;
-                }
-                if cost < best_cost {
-                    best_cost = cost;
-                    best_cluster = cluster;
-                }
-            }
-        }
-        */
+        
 
         if best_cluster.is_empty() {
             break;

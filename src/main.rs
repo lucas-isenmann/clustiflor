@@ -14,7 +14,7 @@ use biclusters::{
 };
 
 use clap::Parser;
-use rand::Rng;
+use rand::RngExt;
 use walkdir::WalkDir;
 
 use crate::cli::Cli;

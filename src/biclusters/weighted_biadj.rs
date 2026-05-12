@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs::File};
 use std::io::{BufRead, BufReader, Write};
 
 use ndarray::Array2;
-use rand::Rng;
+use rand::RngExt;
 
 use crate::common::print_matrix;
 
