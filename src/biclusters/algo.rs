@@ -134,7 +134,7 @@ fn best(
         s += 1.;
 
         for (x, st) in state.iter_mut() {
-            if wadj.has_edgee(*x, i) == false {
+            if wadj.has_edge(*x, i) == false {
                 if *st == State::Positive {
                     if indegree[*x] <= s * 0.5 {
                         *st = State::Negative;
@@ -209,6 +209,14 @@ fn best(
             }
         }
 
+        let cc = compute_nb_operations(&b_cluster, wadj, split_threshold, 0);
+
+        println!("{s}, {b_cluster:?} cost: {c}, ope {cc:?}");
+        if c != (cc.1 + cc.2 + cc.3) {
+            panic!("{c} {cc:?}");
+        }
+        
+
         let cost = c * f64::powf(s, -cost_coef);
         if best_cost.is_nan() || cost < best_cost {
             best_cost = cost;
@@ -218,6 +226,109 @@ fn best(
 
     (best_cost, best_cluster)
 }
+
+
+/// return (nb_rows, nb_deletions, nb_additions, nb_splits)
+fn compute_nb_operations (
+    cols_cluster: &Vec<usize>,
+    wadj: & WeightedBiAdjacency,
+    split_threshold: f64,
+    verbose: usize,
+) -> (f64, f64, f64, f64) {
+    let mut nb_rows = 0.;
+    let mut nb_deletions = 0.;
+    let mut nb_splits = 0.;
+    let mut nb_additions = 0.;
+    let cluster_size = cols_cluster.len() as f64;
+
+    for row in 0..wadj.get_n() {
+        // the indegree is the weights of the edges with cols_cluster
+        // the out_degree is the sum of the weight of the edges outside cols_cluster
+        let (indegree, out_degree) = wadj.get_row_in_out_degrees(row, &cols_cluster);
+
+        // row is accepted in the bicluster
+        if indegree > cluster_size * 0.5 {
+            nb_rows += 1.;
+            nb_additions += cluster_size - indegree;
+
+            // Delete case
+            if out_degree <= split_threshold {
+                nb_deletions += out_degree;
+            }
+            // Split case
+            else {
+                nb_splits += 1.;
+            }
+        }
+        // row is not accepted
+        else {
+            nb_deletions += indegree;
+        }
+    }
+
+    (nb_rows, nb_deletions, nb_additions, nb_splits)
+}
+
+
+
+fn compute_cost(
+    cols_cluster: &Vec<usize>,
+    wadj: & WeightedBiAdjacency,
+    split_threshold: f64,
+    size_sensitivity: f64,
+    verbose: usize,
+) -> f64 {
+    let (nb_rows, add, del, spl) = compute_nb_operations(cols_cluster, wadj, split_threshold, verbose);
+    let c = cols_cluster.len() as f64;
+    let cost = (add)/c + del+ spl/ (nb_rows+1.);
+    // println!("{cost:.2} {} {nb_rows:.0} {add:.0} {del:.0} {spl:.0}", cols_cluster.len());
+    cost
+}
+
+fn compute_old_cost(
+    cols_cluster: &Vec<usize>,
+    wadj: & WeightedBiAdjacency,
+    split_threshold: f64,
+    size_sensitivity: f64,
+    verbose: usize,
+) -> f64 {
+
+    let nb_cols_cluster = cols_cluster.len() as f64;
+    let (nb_rows, add, del, spl) = compute_nb_operations(cols_cluster, wadj, split_threshold, verbose);
+
+     (add + del + spl) * f64::powf(nb_cols_cluster, -size_sensitivity)
+}
+
+
+
+fn best_sure(
+    order: &Vec<(usize, f64)>,
+    wadj: &WeightedBiAdjacency,
+    cost_coef: f64,
+    split_threshold: f64,
+    verbose: usize
+) -> (f64, Vec<usize>) {
+    let mut best_cost = f64::NAN;
+    let mut best_cluster = Vec::new();
+    let mut cols_cluster = Vec::new();
+
+    for &(i,proba_i) in order.iter() {
+        if proba_i == 0. {
+            break;
+        }
+        cols_cluster.push(i);
+        let cost = compute_cost(&cols_cluster, wadj, split_threshold, cost_coef, verbose);
+        
+        if  best_cost.is_nan() || cost < best_cost {
+            best_cluster = cols_cluster.clone();
+            best_cost = cost;
+        }
+    }
+    (best_cost, best_cluster)
+}
+
+
+
 
 fn compute_unclustered_a(n: usize, a_clusters: &Vec<Vec<usize>>) -> Vec<usize> {
     let mut a_unclustered = vec![];
@@ -280,6 +391,7 @@ pub fn bicluster_one_sided(
     cost_coef: f64,
     split_threshold: f64,
     markov_power: usize,
+    sample_size: usize,
     verbose: usize,
 ) -> (Biclust, AlgoStats) {
     let min_error = wadj.compute_min_error();
@@ -300,6 +412,7 @@ pub fn bicluster_one_sided(
     let mut nb_assigned = 0;
 
     let start_instant: Instant = Instant::now();
+
 
     // While there exists some B vertices to cluster
     loop {
@@ -349,7 +462,7 @@ pub fn bicluster_one_sided(
                 minv = Some(v);
             }
         }
-        if verbose >= 0 {
+        if verbose >= 1 {
             println!("vertex {minv:?} of degree {mindeg}, vertex {maxv:?} of degree {maxdeg}");
         }
 
@@ -372,14 +485,15 @@ pub fn bicluster_one_sided(
         }
 
         // Pick a sample
-        let mut sample = pick_unassigned_sample(&mut rng, 1, &unassigned);
+        let mut sample = pick_unassigned_sample(&mut rng, sample_size, &unassigned);
+
 
         // Add minv and maxv if they are not in the sample
-        if let Some(minv) = minv {
-            if sample.contains(&minv) == false {
-                sample.push(minv);
-            }
-        }
+        // if let Some(minv) = minv {
+        //     if sample.contains(&minv) == false {
+        //         sample.push(minv);
+        //     }
+        // }
         if let Some(maxv) = maxv {
             if sample.contains(&maxv) == false {
                 sample.push(maxv);
@@ -390,6 +504,9 @@ pub fn bicluster_one_sided(
 
         // Find the B_cluster with minimal cost
         for b in sample {
+
+            println!("center: {b}");
+
             // Compute order of b
             let mut d = 0.;
             for (_, w) in wadj.iter(b) {
@@ -401,18 +518,26 @@ pub fn bicluster_one_sided(
                 compute_order(&wadj, m, b, &tm, markov_power, verbose)
             };
 
-            println!(
-                "Col: {b} deg: {} B-neighbors: {}",
-                wadj.col_degree(b),
-                order.len()
-            );
+            println!("order computed");
+            
             if verbose >= 2 {
                 println!("Step 1: compute order of {b}");
                 println!("{order:?}");
             }
 
+
+
             // Compute best cost
-            let (cost, b_cluster) = best(n, m, order, &wadj, cost_coef, split_threshold);
+            // let (cost, b_cluster) = best(n, m, order, &wadj, cost_coef, split_threshold);
+            let (cost, b_cluster) = best_sure(&order, &wadj, cost_coef, split_threshold, verbose);
+
+            println!(
+                "Col: {b} deg: {} B-neighbors: {} best_cost: {cost:.2}",
+                wadj.col_degree(b),
+                order.len()
+            );
+
+
             if best_cost.is_nan() || cost < best_cost {
                 best_cost = cost;
                 best_cluster = b_cluster.clone();
@@ -441,12 +566,12 @@ pub fn bicluster_one_sided(
             best_cluster.sort();
             println!("--- New Bicluster n° {}", b_clusters.len());
             println!("Discoverd from {best_col}");
-            println!("Cols indices:  {best_cluster:?}");
-            let mut cols_labels = vec![];
-            for i in 0..best_cluster.len() {
-                cols_labels.push(wadj.get_label(n + best_cluster[i]));
-            }
-            println!("Cols labels: [{}]", cols_labels.join(" "));
+            // println!("Cols indices:  {best_cluster:?}");
+            // let mut cols_labels = vec![];
+            // for i in 0..best_cluster.len() {
+            //     cols_labels.push(wadj.get_label(n + best_cluster[i]));
+            // }
+            // println!("Cols labels: [{}]", cols_labels.join(" "));
             println!("Nb cols:  {}", best_cluster.len());
         }
 
@@ -458,13 +583,13 @@ pub fn bicluster_one_sided(
         nb_operations += del + add + spl;
 
         if verbose >= 0 {
-            println!("Rows indices: {a_cluster:?}");
-            let mut rows_labels = vec![];
-            for i in 0..a_cluster.len() {
-                rows_labels.push(wadj.get_label(a_cluster[i]));
-            }
-            println!("Rows labels: [{}]", rows_labels.join(" "));
-            println!("Nb rows: {}", rows_labels.len());
+            // println!("Rows indices: {a_cluster:?}");
+            // let mut rows_labels = vec![];
+            // for i in 0..a_cluster.len() {
+            //     rows_labels.push(wadj.get_label(a_cluster[i]));
+            // }
+            // println!("Rows labels: [{}]", rows_labels.join(" "));
+            println!("Nb rows: {}", a_cluster.len());
             println!("Deletions: {del}");
             println!("Additions: {add}");
             println!("Splits: {spl}");
@@ -509,6 +634,7 @@ pub fn bicluster_one_sided(
     )
 }
 
+
 fn apply_operations(
     n: usize,
     m: usize,
@@ -540,7 +666,7 @@ fn apply_operations(
 
             if verbose >= 2 {
                 for &col in b_cluster.iter() {
-                    if wadj.has_edgee(a, col) == false {
+                    if wadj.has_edge(a, col) == false {
                         println!("add {a} {col}");
                     }
                 }
@@ -558,7 +684,7 @@ fn apply_operations(
             if out_degree <= split_threshold {
                 nb_deletions += out_degree;
                 for b in 0..m {
-                    if b_cluster.contains(&b) == false && wadj.has_edgee(a, b) {
+                    if b_cluster.contains(&b) == false && wadj.has_edge(a, b) {
                         if verbose >= 2 {
                             println!("delete {a} {b}")
                         }
@@ -567,7 +693,7 @@ fn apply_operations(
                 }
                 for &b in b_cluster.iter() {
                     // I think it is useless
-                    if wadj.has_edgee(a, b) {
+                    if wadj.has_edge(a, b) {
                         wadj.delete_edge(a, b);
                     }
                 }
@@ -579,7 +705,7 @@ fn apply_operations(
                     println!("split {a} {}", wadj.get_label(a))
                 }
                 for &b in b_cluster.iter() {
-                    if wadj.has_edgee(a, b) {
+                    if wadj.has_edge(a, b) {
                         // println!("spl del {a} {b}");
                         wadj.delete_edge(a, b);
                     }
@@ -588,7 +714,7 @@ fn apply_operations(
         } else {
             nb_deletions += indegree;
             for &b in b_cluster.iter() {
-                if wadj.has_edgee(a, b) {
+                if wadj.has_edge(a, b) {
                     if verbose >= 2 {
                         println!("delete {a} {b}")
                     }
@@ -706,4 +832,84 @@ pub fn compute_nb_unclustered(biclusters: &Vec<Vec<usize>>, n: usize, m: usize) 
         }
     }
     (ra, rb)
+}
+
+
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn test_compute_nb_operations() {
+        let input = "\
++ a b c
+X 1 0 0
+Y 1 0 1
+Z 1 1 1
+";
+
+        let reader = Cursor::new(input);
+
+        let wadj = WeightedBiAdjacency::parse_wadj_from_reader(
+            reader,
+            false,
+            " ",
+            true,
+        )
+        .unwrap();
+
+        let cols_cluster = vec![0];
+
+        // Threshold 0.5
+        let (nb_rows, nb_deletions, nb_additions, nb_splits) =
+            compute_nb_operations(
+                &cols_cluster,
+                &wadj,
+                0.5,
+                0,
+            );
+
+        assert_eq!(nb_rows, 3.);
+
+        assert!((nb_deletions - 0.0).abs() < 1e-9);
+        assert!((nb_additions - 0.0).abs() < 1e-9);
+        assert!((nb_splits - 2.0).abs() < 1e-9);
+
+        // Threshold 1.0
+        let (nb_rows, nb_deletions, nb_additions, nb_splits) =
+            compute_nb_operations(
+                &cols_cluster,
+                &wadj,
+                1.0,
+                0,
+            );
+
+        assert_eq!(nb_rows, 3.);
+
+        assert!((nb_deletions - 1.0).abs() < 1e-9);
+        assert!((nb_additions - 0.0).abs() < 1e-9);
+        assert!((nb_splits - 1.0).abs() < 1e-9);
+
+
+        // Threshold 2.0
+        let (nb_rows, nb_deletions, nb_additions, nb_splits) =
+            compute_nb_operations(
+                &cols_cluster,
+                &wadj,
+                2.5,
+                0,
+            );
+
+        assert_eq!(nb_rows, 3.);
+
+        assert!((nb_deletions - 3.0).abs() < 1e-9);
+        assert!((nb_additions - 0.0).abs() < 1e-9);
+        assert!((nb_splits - 0.0).abs() < 1e-9);
+    }
+
+   
 }

@@ -291,7 +291,7 @@ fn best_cluster_col(
         for (i, &row) in rows.iter().enumerate() {
             let mut d = 0;
             for &col in cols_cluster.iter() {
-                if wadj.has_edgee(row, col) {
+                if wadj.has_edge(row, col) {
                     d += 1;
                 }
             }
@@ -319,7 +319,7 @@ fn best_cluster_col(
             for &col in cols_cluster.iter() {
                 let mut d = 0;
                 for &row in rows_cluster.iter() {
-                    if wadj.has_edgee(row, col) {
+                    if wadj.has_edge(row, col) {
                         d += 1;
                     }
                 }
@@ -395,7 +395,7 @@ fn best_cluster_row(
         for (i, &col) in cols.iter().enumerate() {
             let mut d = 0;
             for &row in rows_cluster.iter() {
-                if wadj.has_edgee(row, col) {
+                if wadj.has_edge(row, col) {
                     d += 1;
                 }
             }
@@ -423,7 +423,7 @@ fn best_cluster_row(
             for &row in rows_cluster.iter() {
                 let mut d = 0;
                 for &col in cols_cluster.iter() {
-                    if wadj.has_edgee(row, col) {
+                    if wadj.has_edge(row, col) {
                         d += 1;
                     }
                 }

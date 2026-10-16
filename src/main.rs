@@ -145,7 +145,7 @@ fn run_comparison() {
 
         // Clustiflor
         let start_time = Instant::now();
-        let (clusti_biclusters, _clusti_stats) = bicluster_one_sided(&mut wadj, 1., 1., 3, 0);
+        let (clusti_biclusters, _clusti_stats) = bicluster_one_sided(&mut wadj, 1., 1., 3,0, 0);
         let clustiflor_dur = start_time.elapsed();
         let (_labels_a, _labels_b, nodes_a_map, nodes_b_map) = wadj.get_labels();
         // biclusters.print_stats(1., 1., 3, &labels_a, &labels_b, Some(&"yo.biclusters"));
@@ -206,6 +206,7 @@ fn run_bicluster_one_sided(cli: Cli) {
             cli.size_sensitivity,
             cli.split_threshold,
             cli.matrix_power,
+            0,
             cli.verbose,
         );
         let results_path = cli.data_path.to_string() + ".biclusters";
@@ -234,6 +235,7 @@ fn run_bicluster_one_sided(cli: Cli) {
             cli.size_sensitivity,
             cli.split_threshold,
             cli.matrix_power,
+            0,
             cli.verbose,
         );
         let results_path = cli.data_path.to_string() + ".biclusters";
@@ -303,7 +305,7 @@ fn process_directory(dir_path: &str, cli: Cli) {
         )
         .expect("Failed to load matrix");
 
-        wadj.print_wadj_stats();
+        // wadj.print_wadj_stats();
 
         if let Some(bc) = wadj.get_ground_truth() {
             println!("{:?}", bc.biclusters());
@@ -339,9 +341,10 @@ fn process_single_file(file_path: &str, cli: Cli) {
         cli.matrix_labels,
     )
     .expect("Failed to load matrix");
-    wadj.print_wadj_stats();
+    // wadj.print_wadj_stats();
 
     if let Some(bc) = wadj.get_ground_truth() {
+        println!("Ground truth:");
         println!("{:?}", bc.biclusters());
     }
 

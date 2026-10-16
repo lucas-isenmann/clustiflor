@@ -122,7 +122,7 @@ impl WeightedBiAdjacency {
         distrib
     }
 
-    pub fn has_edgee(&self, a: usize, b: usize) -> bool {
+    pub fn has_edge(&self, a: usize, b: usize) -> bool {
         self.wadj[b].contains_key(&a)
     }
 
@@ -142,6 +142,26 @@ impl WeightedBiAdjacency {
         } else {
             self.add_edge(i, j, 1.);
         }
+    }
+
+
+
+    pub fn get_row_in_out_degrees(&self, row: usize, cols_cluster: &Vec<usize>) -> (f64,f64) {
+        let m = self.m;
+        let mut indegree = 0.;
+        for (&col, w) in self.iter(row + m) {
+            if cols_cluster.contains(&col) {
+                indegree += w;
+            }
+        }
+
+        let mut out_degree = 0.;
+        for (i, w) in self.iter(row + m) {
+            if cols_cluster.contains(&i) == false {
+                out_degree += w;
+            }
+        }
+        (indegree, out_degree)
     }
 
     pub fn print(&self) {
@@ -378,7 +398,7 @@ impl WeightedBiAdjacency {
                         break
                     }
                 }
-                if has_edge != self.has_edgee(row, col) {
+                if has_edge != self.has_edge(row, col) {
                     nb_erros += 1;
                 }
             }
@@ -545,7 +565,7 @@ impl WeightedBiAdjacency {
                     }
                 } else {
                     m = values.len();
-                    println!("{n} {m} {values:?}");
+                    // println!("{n} {m} {values:?}");
 
                     for j in 0..m {
                         let weight: f64 = values[j].parse().unwrap();
