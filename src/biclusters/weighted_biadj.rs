@@ -9,11 +9,23 @@ use crate::common::print_matrix;
 use super::biclust::Biclust;
 
 
+/// Rows = A  there are n rows
+/// Cols = B  there are m cols
 #[derive(Clone)]
 pub struct WeightedBiAdjacency {
-    wadj: Vec<HashMap<usize, f64>>, 
+    /// row_adj[a] : col -> weight
+    pub row_adj: Vec<HashMap<usize, f64>>,
+    /// col_adj[b] : row -> weight
+    pub col_adj: Vec<HashMap<usize, f64>>,
+    /// Weight sum around each row and each col
+    row_wdeg: Vec<f64>,
+    col_wdeg: Vec<f64>,
+
+    /// Number of rows
     n: usize,
+    /// Number of cols
     m: usize,
+
     labels_a: Vec<String>,
     labels_b: Vec<String>,
     nodes_a_map: HashMap<String, usize>,
@@ -41,7 +53,10 @@ impl WeightedBiAdjacency {
         }
 
         WeightedBiAdjacency {
-            wadj: vec![HashMap::new(); n+m],
+            row_adj: vec![HashMap::new(); n],
+            col_adj: vec![HashMap::new(); m],
+            row_wdeg: vec![0.; n],
+            col_wdeg: vec![0.; m],
             n,
             m,
             labels_a,
@@ -64,9 +79,9 @@ impl WeightedBiAdjacency {
         writeln!(file, "{header}").unwrap();
         writeln!(file, "# n={} m={}", self.n, self.m).unwrap();
 
-        for a in 0..self.n {
-            for (&b,_) in self.wadj[a+self.m].iter() {
-                writeln!(file, "{} {}", self.labels_a[a], self.labels_b[b]).unwrap();
+        for row in 0..self.n {
+            for (&b,_) in self.row_adj[row].iter() {
+                writeln!(file, "{} {}", self.labels_a[row], self.labels_b[b]).unwrap();
             }
         }
        
@@ -80,6 +95,10 @@ impl WeightedBiAdjacency {
         self.m
     }
 
+
+    pub fn row_label(&self, row: usize) -> &str { &self.labels_a[row] }
+    pub fn col_label(&self, col: usize) -> &str { &self.labels_b[col] } 
+
     pub fn get_label(&self, x: usize) -> String {
         if x < self.n {
             self.labels_a[x].clone()
@@ -92,22 +111,33 @@ impl WeightedBiAdjacency {
         (self.labels_a.clone(), self.labels_b.clone(), self.nodes_a_map.clone(), self.nodes_b_map.clone())
     }
 
-    pub fn iter(&self, idx: usize) -> impl Iterator<Item = (&usize, &f64)> {
-        self.wadj[idx].iter()
+
+    /// Colonnes adjacentes à la ligne a, avec leur poids
+    pub fn row_neighbors(&self, row: usize) -> impl Iterator<Item = (usize, f64)> + '_ {
+        self.row_adj[row].iter().map(|(&b, &w)| (b, w))
     }
 
-    pub fn col_degree(&self, b: usize) -> usize {
-        self.wadj[b].len()
+    /// Lignes adjacentes à la colonne b, avec leur poids
+    pub fn col_neighbors(&self, col: usize) -> impl Iterator<Item = (usize, f64)> + '_ {
+        self.col_adj[col].iter().map(|(&a, &w)| (a, w))
     }
 
-    pub fn row_degree(&self, a: usize) -> usize {
-        self.wadj[a+self.m].len()
-    }
+
+    /// Nombre de voisins (ancien row_degree)
+    pub fn row_nb_neighbors(&self, row: usize) -> usize { self.row_adj[row].len() }
+    pub fn col_nb_neighbors(&self, col: usize) -> usize { self.col_adj[col].len() }
+
+    /// Somme des poids, en O(1)
+    pub fn row_wdeg(&self, row: usize) -> f64 { self.row_wdeg[row] }
+    pub fn col_wdeg(&self, col: usize) -> f64 { self.col_wdeg[col] }
+
+    pub fn row_wdegs(&self) -> &[f64] { &self.row_wdeg }
+    pub fn col_wdegs(&self) -> &[f64] { &self.col_wdeg }
 
     pub fn row_degrees_distributon(&self) -> Vec<usize> {
         let mut distrib = Vec::new();
-        for a in 0..self.n {
-            distrib.push(self.wadj[a+self.m].len());
+        for row in 0..self.n {
+            distrib.push(self.row_adj[row].len());
         }
         distrib.sort();
         distrib
@@ -115,61 +145,75 @@ impl WeightedBiAdjacency {
 
     pub fn col_degrees_distributon(&self) -> Vec<usize> {
         let mut distrib = Vec::new();
-        for b in 0..self.m {
-            distrib.push(self.col_degree(b));
+        for col in 0..self.m {
+            distrib.push(self.col_adj[col].len());
         }
         distrib.sort();
         distrib
     }
 
-    pub fn has_edge(&self, a: usize, b: usize) -> bool {
-        self.wadj[b].contains_key(&a)
+    pub fn has_edge(&self, row: usize, col: usize) -> bool {
+        self.row_adj[row].contains_key(&col)
     }
 
-    pub fn delete_edge(&mut self, a: usize, b: usize) {
-        self.wadj[a+self.m].remove(&b);
-        self.wadj[b].remove(&a);
+    pub fn delete_edge(&mut self, row: usize, col: usize) -> f64 {
+        if let Some(w) = self.row_adj[row].remove(&col) {
+            self.col_adj[col].remove(&row);
+            self.row_wdeg[row] -= w;
+            self.col_wdeg[col] -= w;
+            if self.row_adj[row].is_empty() { self.row_wdeg[row] = 0.; } // Avoid epsilon values
+            if self.col_adj[col].is_empty() { self.col_wdeg[col] = 0.; }
+            w
+        } else {
+            0.
+        }
     }
     
-    pub fn add_edge(&mut self, a: usize, b: usize, weight: f64) {
-        self.wadj[a+self.m].insert(b, weight);
-        self.wadj[b].insert(a, weight);
+    /// Does not add the edge if it already exists
+    pub fn add_edge(&mut self, row: usize, col: usize, weight: f64) {
+        if weight <= 0. {
+            self.delete_edge(row, col);
+            return;
+        }
+        if self.has_edge(row, col) == false {
+            self.row_adj[row].insert(col, weight);
+            self.col_adj[col].insert(row, weight);
+            self.row_wdeg[row] += weight;
+            self.col_wdeg[col] += weight;
+        }
     }
 
-    fn toggle(&mut self, i: usize,j: usize) {
-        if self.wadj[j].contains_key(&i) {
-            self.delete_edge(i, j);
+    fn toggle(&mut self, row: usize, col: usize) {
+        if self.has_edge(row, col) {
+            self.delete_edge(row, col);
         } else {
-            self.add_edge(i, j, 1.);
+            self.add_edge(row, col, 1.);
         }
     }
 
 
 
-    pub fn get_row_in_out_degrees(&self, row: usize, cols_cluster: &Vec<usize>) -> (f64,f64) {
-        let m = self.m;
-        let mut indegree = 0.;
-        for (&col, w) in self.iter(row + m) {
-            if cols_cluster.contains(&col) {
-                indegree += w;
-            }
-        }
-
-        let mut out_degree = 0.;
-        for (i, w) in self.iter(row + m) {
-            if cols_cluster.contains(&i) == false {
-                out_degree += w;
-            }
-        }
-        (indegree, out_degree)
+    /// in_cluster[col] == true if col is in the coluster
+    pub fn get_row_in_out_degrees(&self, row: usize, in_cluster: &[bool]) -> (f64, f64) {
+        let indegree: f64 = self.row_neighbors(row)
+            .filter(|&(col, _)| in_cluster[col])
+            .map(|(_, w)| w)
+            .sum();
+        (indegree, self.row_wdeg[row] - indegree)
     }
 
+    /// Print neighbors and weights
+    ///    rowid    col  w
+    /// row 0      [(0, 0.2), (1, 0.3)]
+    /// row 1 [0, 0, 0, 0]
+    /// ...
+    /// col 0 [...]
     pub fn print(&self) {
         for row in 0..self.n {
-            println!("row {row} {:?}", self.wadj[self.m + row]);
+            println!("row {row} {:?}", self.row_adj[row]);
         }
         for col in 0..self.m {
-            println!("col {col} {:?}", self.wadj[col]);
+            println!("col {col} {:?}", self.col_adj[col]);
         }
     }
 
@@ -187,9 +231,9 @@ impl WeightedBiAdjacency {
         let mut maxw = f64::NAN;
         let mut ne = 0;
         let mut density = 0.;
-        for b in 0..m {
-            ne += self.col_degree(b);
-            for (_, &w) in self.iter(b) {
+        for col in 0..m {
+            ne += self.col_nb_neighbors(col);
+            for (_, &w) in self.col_adj[col].iter() {
                 if maxw.is_nan() || w > maxw {
                     maxw = w;
                 }
@@ -345,13 +389,12 @@ impl WeightedBiAdjacency {
 
     
 
+    
     fn get_matrix(&self) -> Array2<f64> {
-        let mut matrix = Array2::zeros((self.n,self.m));
-        for i in 0..self.n {
-            for j in 0..self.m {
-                if let Some(w) = self.wadj[j].get(&i) {
-                    matrix[[i,j]] = *w;
-                }
+        let mut matrix = Array2::zeros((self.n, self.m));
+        for row in 0..self.n {
+            for (col, w) in self.row_neighbors(row) {
+                matrix[[row, col]] = w;
             }
         }
         matrix
@@ -380,7 +423,7 @@ impl WeightedBiAdjacency {
     pub fn density(&self) -> f64 {
         let mut s = 0;
         for col in 0..self.m {
-            s += self.wadj[col].len()
+            s += self.col_adj[col].len()
         }
         s as f64 / (self.n * self.m) as f64
     }
@@ -411,18 +454,10 @@ impl WeightedBiAdjacency {
     /// If weight is 0 or 1 then min error is 0
     /// If weight is 0.5 then min error is 0.5 for this edge. You need at least 0.5 operation to solve it
     pub fn compute_min_error(&self) -> f64 {
-        let mut r = 0.;
-        for row in 0..self.n {
-            for col in 0..self.m {
-                if let Some(&w) = self.wadj[col].get(&row) {
-                    if w > 0.5 {
-                        r += 1.- w;
-                    } else {
-                        r += w
-                    }
-                }
-           } 
-        }
+        let r: f64 = self.row_adj.iter()
+            .flat_map(|adj| adj.values())
+            .map(|&w| if w > 0.5 { 1. - w } else { w })
+            .sum();
         r / (self.n * self.m) as f64
     }
 

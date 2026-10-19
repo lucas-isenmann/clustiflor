@@ -7,7 +7,7 @@ use ndarray::Array2;
 use crate::biclusters::biclust::Biclust;
 use crate::common::{print_matrix, progress_bar};
 
-use super::algo::AlgoStats;
+use super::common::AlgoStats;
 use super::common::{rows_transition_matrix, transition_matrix_b};
 use super::weighted_biadj::WeightedBiAdjacency;
 
@@ -148,16 +148,15 @@ fn centered_ordering(
 
 fn neighbors_3_col(
     wadj: &WeightedBiAdjacency,
-    m: usize,
     col: usize,
 ) -> (HashSet<usize>, HashSet<usize>, HashSet<usize>) {
     let mut row_1neighbors = HashSet::new();
     let mut col_2neighbors = HashSet::new();
     let mut row_3neighbors = HashSet::new();
 
-    for (row, _) in wadj.iter(col) {
+    for (row, _) in wadj.col_adj[col].iter() {
         row_1neighbors.insert(*row);
-        for (col2, _) in wadj.iter(row + m) {
+        for (col2, _) in wadj.row_adj[*row].iter() {
             if *col2 != col && col_2neighbors.contains(col2) == false {
                 col_2neighbors.insert(*col2);
             }
@@ -165,7 +164,7 @@ fn neighbors_3_col(
     }
 
     for col2 in col_2neighbors.iter() {
-        for (row3, _) in wadj.iter(*col2) {
+        for (row3, _) in wadj.col_adj[*col2].iter() {
             if row_1neighbors.contains(row3) == false {
                 row_3neighbors.insert(*row3);
             }
@@ -177,16 +176,15 @@ fn neighbors_3_col(
 
 fn neighbors_3_row(
     wadj: &WeightedBiAdjacency,
-    m: usize,
     row: usize,
 ) -> (HashSet<usize>, HashSet<usize>, HashSet<usize>) {
     let mut col_1neighbors = HashSet::new();
     let mut row_2neighbors = HashSet::new();
     let mut col_3neighbors = HashSet::new();
 
-    for (col, _) in wadj.iter(row + m) {
+    for (col, _) in wadj.row_adj[row].iter() {
         col_1neighbors.insert(*col);
-        for (row2, _) in wadj.iter(*col) {
+        for (row2, _) in wadj.col_adj[*col].iter() {
             if *row2 != row && row_2neighbors.contains(row2) == false {
                 row_2neighbors.insert(*row2);
             }
@@ -194,7 +192,7 @@ fn neighbors_3_row(
     }
 
     for row2 in row_2neighbors.iter() {
-        for (col3, _) in wadj.iter(*row2 + m) {
+        for (col3, _) in wadj.row_adj[*row2].iter() {
             if col_1neighbors.contains(col3) == false {
                 col_3neighbors.insert(*col3);
             }
@@ -206,14 +204,13 @@ fn neighbors_3_row(
 
 fn compute_bicluster_col(
     wadj: &WeightedBiAdjacency,
-    m: usize,
     col: usize,
     rows_tm: &Array2<f64>,
     cols_tm: &Array2<f64>,
     markov_power: usize,
     verbose: usize,
 ) -> (Vec<(usize, f64)>, Vec<(usize, f64)>) {
-    let (row_1neighbors, col_2neighbors, row_3neighbors) = neighbors_3_col(wadj, m, col);
+    let (row_1neighbors, col_2neighbors, row_3neighbors) = neighbors_3_col(wadj, col);
 
     if verbose >= 3 {
         println!("   col {col}");
@@ -244,7 +241,6 @@ fn bicluster_size(n: usize, m: usize) -> f64 {
 fn best_cluster_col(
     wadj: &WeightedBiAdjacency,
     n: usize,
-    m: usize,
     col: usize,
     rows_tm: &Array2<f64>,
     cols_tm: &Array2<f64>,
@@ -253,7 +249,7 @@ fn best_cluster_col(
     cost_coef: f64,
     verbose: usize,
 ) -> (Vec<usize>, Vec<usize>, f64) {
-    let (row_1neighbors, col_2neighbors, row_3neighbors) = neighbors_3_col(wadj, m, col);
+    let (row_1neighbors, col_2neighbors, row_3neighbors) = neighbors_3_col(wadj,  col);
 
     if verbose >= 3 {
         println!("   col {col}");
@@ -296,10 +292,10 @@ fn best_cluster_col(
                 }
             }
             cost[row] = cols_cluster.len() - d; // edge additions
-            if (wadj.row_degree(row) - d) as f64 > split_threshold {
+            if (wadj.row_nb_neighbors(row) - d) as f64 > split_threshold {
                 cost[row] += 1; // split
             } else {
-                cost[row] += wadj.row_degree(row) - d;
+                cost[row] += wadj.row_nb_neighbors(row) - d;
             }
         }
 
@@ -311,7 +307,7 @@ fn best_cluster_col(
         let mut rows_cost = 0;
 
         let mut rows_cluster = vec![];
-        for (i, &row) in rows.iter().enumerate() {
+        for (_, &row) in rows.iter().enumerate() {
             rows_cost += cost[row];
             rows_cluster.push(row);
             let mut cols_cost = 0;
@@ -323,10 +319,10 @@ fn best_cluster_col(
                         d += 1;
                     }
                 }
-                if (wadj.col_degree(col) - d) as f64 > split_threshold {
+                if (wadj.col_nb_neighbors(col) - d) as f64 > split_threshold {
                     cols_cost += 1;
                 } else {
-                    cols_cost += wadj.col_degree(col) - d;
+                    cols_cost += wadj.col_nb_neighbors(col) - d;
                 }
             }
 
@@ -354,7 +350,6 @@ fn best_cluster_col(
 
 fn best_cluster_row(
     wadj: &WeightedBiAdjacency,
-    n: usize,
     m: usize,
     row: usize,
     rows_tm: &Array2<f64>,
@@ -364,7 +359,7 @@ fn best_cluster_row(
     cost_coef: f64,
     verbose: usize,
 ) -> (Vec<usize>, Vec<usize>, f64) {
-    let (col_1neighbors, row_2neighbors, col_3neighbors) = neighbors_3_row(wadj, m, row);
+    let (col_1neighbors, row_2neighbors, col_3neighbors) = neighbors_3_row(wadj,  row);
 
     // Rows
     let r0: Vec<usize> = vec![row];
@@ -392,7 +387,7 @@ fn best_cluster_row(
         // println!("cols_cluster: {cols_cluster:?}");
 
         let mut cost = vec![0; m];
-        for (i, &col) in cols.iter().enumerate() {
+        for (_, &col) in cols.iter().enumerate() {
             let mut d = 0;
             for &row in rows_cluster.iter() {
                 if wadj.has_edge(row, col) {
@@ -400,10 +395,10 @@ fn best_cluster_row(
                 }
             }
             cost[col] = rows_cluster.len() - d; // edge additions
-            if (wadj.col_degree(col) - d) as f64 > split_threshold {
+            if (wadj.col_nb_neighbors(col) - d) as f64 > split_threshold {
                 cost[col] += 1; // split
             } else {
-                cost[col] += wadj.col_degree(col) - d;
+                cost[col] += wadj.col_nb_neighbors(col) - d;
             }
         }
 
@@ -415,7 +410,7 @@ fn best_cluster_row(
         let mut cols_cost = 0;
 
         let mut cols_cluster = vec![];
-        for (i, &col) in cols.iter().enumerate() {
+        for (_, &col) in cols.iter().enumerate() {
             cols_cost += cost[col];
             cols_cluster.push(col);
             let mut rows_cost = 0;
@@ -427,10 +422,10 @@ fn best_cluster_row(
                         d += 1;
                     }
                 }
-                if (wadj.row_degree(row) - d) as f64 > split_threshold {
+                if (wadj.row_nb_neighbors(row) - d) as f64 > split_threshold {
                     rows_cost += 1;
                 } else {
-                    rows_cost += wadj.row_degree(row) - d;
+                    rows_cost += wadj.row_nb_neighbors(row) - d;
                 }
             }
 
@@ -458,14 +453,13 @@ fn best_cluster_row(
 
 fn compute_bicluster_row(
     wadj: &WeightedBiAdjacency,
-    m: usize,
     row: usize,
     rows_tm: &Array2<f64>,
     cols_tm: &Array2<f64>,
     markov_power: usize,
     verbose: usize,
 ) -> (Vec<(usize, f64)>, Vec<(usize, f64)>) {
-    let (col_1neighbors, row_2neighbors, col_3neighbors) = neighbors_3_row(wadj, m, row);
+    let (col_1neighbors, row_2neighbors, col_3neighbors) = neighbors_3_row(wadj,  row);
 
     if verbose >= 3 {
         println!("   row {row}");
@@ -499,7 +493,7 @@ fn compute_cost(
     for &row in rows_cluster {
         for col in cols_cluster {
             let mut found = false;
-            for (col2, &w) in wadj.iter(row + m) {
+            for (col2, &w) in wadj.row_adj[row].iter() {
                 if col2 == col {
                     cost += 1. - w; // addition
                     found = true;
@@ -514,7 +508,7 @@ fn compute_cost(
 
     for &row in rows_cluster {
         let mut deletion_cost = 0.;
-        for (col, &w) in wadj.iter(row + m) {
+        for (col, &w) in wadj.row_adj[row].iter() {
             if cols_cluster.contains(col) == false {
                 deletion_cost += w;
             }
@@ -528,7 +522,7 @@ fn compute_cost(
 
     for &col in cols_cluster {
         let mut deletion_cost = 0.;
-        for (row, &w) in wadj.iter(col) {
+        for (row, &w) in wadj.col_adj[col].iter() {
             if rows_cluster.contains(row) == false {
                 deletion_cost += w;
             }
@@ -546,7 +540,6 @@ fn compute_cost(
 ///
 /// cost_coef in [0,1]
 fn best(
-    n: usize,
     m: usize,
     rows_order: Vec<(usize, f64)>,
     cols_order: Vec<(usize, f64)>,
@@ -622,7 +615,7 @@ pub fn bicluster_two_sided(
 
         // Check if there is a B vertex of degree 0
         for b in 0..m {
-            if assigned[b + n] == false && wadj.col_degree(b) == 0 {
+            if assigned[b + n] == false && wadj.col_nb_neighbors(b) == 0 {
                 assigned[b + n] = true;
                 nb_assigned += 1;
             }
@@ -630,7 +623,7 @@ pub fn bicluster_two_sided(
 
         // Check if there is a row vertex of degree 0
         for a in 0..n {
-            if assigned[a] == false && wadj.row_degree(a) == 0 {
+            if assigned[a] == false && wadj.row_nb_neighbors(a) == 0 {
                 assigned[a] = true;
                 nb_assigned += 1;
             }
@@ -641,7 +634,7 @@ pub fn bicluster_two_sided(
             println!("{nb_assigned} / {} vertices are assigned", n + m);
             let mut nb_edges = 0;
             for col in 0..m {
-                for _ in wadj.iter(col) {
+                for _ in wadj.col_adj[col].iter() {
                     nb_edges += 1;
                 }
             }
@@ -671,7 +664,6 @@ pub fn bicluster_two_sided(
             let (rows_cluster, cols_cluster, cost) = best_cluster_col(
                 wadj,
                 n,
-                m,
                 col,
                 &rows_tm,
                 &cols_tm,
@@ -693,7 +685,6 @@ pub fn bicluster_two_sided(
             }
             let (rows_cluster, cols_cluster, cost) = best_cluster_row(
                 wadj,
-                n,
                 m,
                 row,
                 &rows_tm,
@@ -721,18 +712,18 @@ pub fn bicluster_two_sided(
 
             // Compute order of N^3[b]
             let mut d = 0.;
-            for (_, w) in wadj.iter(col) {
+            for (_, w) in wadj.col_adj[col].iter() {
                 d += w;
             }
             let (rows_order, cols_order) = if d == 0. {
                 (vec![], vec![(col, 1.)])
             } else {
-                compute_bicluster_col(&wadj, m, col, &rows_tm, &cols_tm, markov_power, verbose)
+                compute_bicluster_col(&wadj, col, &rows_tm, &cols_tm, markov_power, verbose)
             };
             if verbose >= 2 {
                 println!("--- Step 1: compute rows_order of {col}");
                 let mut d = 0.;
-                for (_, w) in wadj.iter(col) {
+                for (_, w) in wadj.col_adj[col].iter() {
                     d += w;
                 }
                 println!("degree: {}", d);
@@ -742,7 +733,6 @@ pub fn bicluster_two_sided(
 
             // Compute best cost
             let (cost, rows_cluster, cols_cluster) = best(
-                n,
                 m,
                 rows_order,
                 cols_order,
@@ -774,13 +764,13 @@ pub fn bicluster_two_sided(
 
             // Compute order of N^3[b]
             let mut d = 0.;
-            for (_, w) in wadj.iter(row + m) {
+            for (_, w) in wadj.row_adj[row].iter() {
                 d += w;
             }
             let (rows_order, cols_order) = if d == 0. {
                 (vec![(row, 1.)], vec![])
             } else {
-                compute_bicluster_row(&wadj, m, row, &rows_tm, &cols_tm, markov_power, verbose)
+                compute_bicluster_row(&wadj, row, &rows_tm, &cols_tm, markov_power, verbose)
             };
             if verbose >= 2 {
                 println!("--- Step 1: compute centered near element of Row {row}");
@@ -790,7 +780,6 @@ pub fn bicluster_two_sided(
 
             // Compute best cost
             let (cost, rows_cluster, cols_cluster) = best(
-                n,
                 m,
                 rows_order,
                 cols_order,
@@ -894,7 +883,7 @@ fn apply_operations(
     let mut edges_to_delete = Vec::new();
     for &row in rows_cluster.iter() {
         let mut indegree = 0;
-        for (col, _) in wadj.iter(row + m) {
+        for (col, _) in wadj.row_adj[row].iter() {
             if cols_cluster.contains(col) {
                 indegree += 1;
                 // println!("DEL {row} {col}");
@@ -907,13 +896,13 @@ fn apply_operations(
 
     for &row in rows_cluster {
         let mut deletion_cost = 0.;
-        for (col, &w) in wadj.iter(row + m) {
+        for (col, &w) in wadj.row_adj[row].iter() {
             if cols_cluster.contains(col) == false {
                 deletion_cost += w;
             }
         }
         if deletion_cost <= split_threshold {
-            for (col, &w) in wadj.iter(row + m) {
+            for (col, &w) in wadj.row_adj[row].iter() {
                 if cols_cluster.contains(col) == false {
                     nb_deletions += w;
                     // println!("del {row} {col}");
@@ -928,13 +917,13 @@ fn apply_operations(
 
     for &col in cols_cluster {
         let mut deletion_cost = 0.;
-        for (row, &w) in wadj.iter(col) {
+        for (row, &w) in wadj.col_adj[col].iter() {
             if rows_cluster.contains(row) == false {
                 deletion_cost += w;
             }
         }
         if deletion_cost <= split_threshold {
-            for (row, &w) in wadj.iter(col) {
+            for (row, &w) in wadj.col_adj[col].iter() {
                 if rows_cluster.contains(row) == false {
                     nb_deletions += w;
                     // println!("del {row} {col}");

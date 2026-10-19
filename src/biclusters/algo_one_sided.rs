@@ -9,7 +9,62 @@ use std::time::Instant;
 use super::common::transition_matrix_b;
 use super::weighted_biadj::WeightedBiAdjacency;
 use crate::biclusters::biclust::Biclust;
+use crate::biclusters::common::AlgoStats;
 use crate::common::{compute_statio_distrib_by_iter, print_matrix, progress_bar};
+
+
+fn compute_order_local(
+    wadj: &WeightedBiAdjacency, 
+    center_col: usize,
+    iters: usize, 
+    tol: f64,
+) -> Vec<(usize, f64)> {
+    // Boule S, b en position 0
+    let mut local: HashMap<usize, usize> = HashMap::from([(center_col, 0)]);
+    let mut cols = vec![center_col];
+    for (&row, _) in wadj.col_adj[center_col].iter() {
+        for (&c, _) in wadj.row_adj[row].iter() {
+            local.entry(c).or_insert_with(|| { cols.push(c); cols.len() - 1 });
+        }
+    }
+    let d = cols.len();
+
+    // Demi-pas précalculés : fwd[j] = [(ligne, W/d_B(j))], back[ligne] = [(j dans S, W/d_A(a))]
+    let mut row_local: HashMap<usize, usize> = HashMap::new();
+    let mut back: Vec<Vec<(usize, f64)>> = vec![];
+    let mut fwd: Vec<Vec<(usize, f64)>> = vec![vec![]; d];
+    for (j, &c) in cols.iter().enumerate() {
+        for (&row, &w) in wadj.col_adj[c].iter() {
+            let r = *row_local.entry(row).or_insert_with(|| {
+                back.push(wadj.row_adj[row].iter()
+                    .filter_map(|(c2, &w2)| local.get(c2).map(|&j2| (j2, w2 / wadj.row_wdeg(row))))
+                    .collect());
+                back.len() - 1
+            });
+            fwd[j].push((r, w / wadj.col_wdeg(c)));
+        }
+    }
+
+    // Itération de puissance creuse, la masse sortante retourne en b
+    let (mut pi, mut next, mut h) = (vec![0.; d], vec![0.; d], vec![0.; back.len()]);
+    pi[0] = 1.;
+    for _ in 0..iters {
+        h.fill(0.); next.fill(0.);
+        for j in 0..d { if pi[j] > 0. { for &(r, p) in &fwd[j] { h[r] += pi[j] * p; } } }
+        for (r, &hr) in h.iter().enumerate() { if hr > 0. { for &(j2, p) in &back[r] { next[j2] += hr * p; } } }
+        let stay: f64 = next.iter().sum();
+        next[0] += 1. - stay;
+        let diff: f64 = pi.iter().zip(&next).map(|(x, y)| (x - y).abs()).sum();
+        std::mem::swap(&mut pi, &mut next);
+        if diff < tol { break; }
+    }
+    let mut order: Vec<_> = cols.into_iter().zip(pi).collect();
+    order.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
+    order
+}
+
+
+
 
 /// The center vertex is supposed to be at index 0 in neighbors (so it is the closed neighborhood)
 ///
@@ -46,9 +101,9 @@ fn compute_order(
         if b == vertex {
             continue;
         }
-        for (x, _) in wadj.iter(b) {
+        for (x, _) in wadj.col_adj[b].iter() {
             let mut found = false;
-            for (y, _) in wadj.iter(vertex) {
+            for (y, _) in wadj.col_adj[vertex].iter() {
                 if y == x {
                     neighbors.push(b);
                     found = true;
@@ -98,27 +153,19 @@ enum State {
     Positive,
 }
 
-fn degree(wadj: &WeightedBiAdjacency, a: usize, m: usize) -> f64 {
-    let mut d = 0.;
-    for (_, w) in wadj.iter(a + m) {
-        d += w;
-    }
-    d
-}
 
 ///
 /// cost_coef in [0,1]
 fn best(
-    n: usize,
-    m: usize,
     order: Vec<(usize, f64)>,
     wadj: &WeightedBiAdjacency,
     cost_coef: f64,
     split_threshold: f64,
 ) -> (f64, Vec<usize>) {
+    let n = wadj.get_n();
     let mut best_cost = f64::NAN;
     let mut best_cluster = Vec::new();
-    let mut b_cluster = Vec::new();
+    let mut cols_cluster = Vec::new();
 
     let mut s = 0.;
     let mut c = 0.;
@@ -130,7 +177,7 @@ fn best(
         if proba_i == 0. {
             break;
         }
-        b_cluster.push(i);
+        cols_cluster.push(i);
         s += 1.;
 
         for (x, st) in state.iter_mut() {
@@ -152,10 +199,10 @@ fn best(
                 }
             }
         }
-        for (&x, &w) in wadj.iter(i) {
+        for (&x, &w) in wadj.col_adj[i].iter() {
             if state.contains_key(&x) == false {
                 indegree[x] = w;
-                outdegree[x] = degree(wadj, x, m) - w;
+                outdegree[x] = wadj.row_wdeg(x) - w;
                 if indegree[x] > s * 0.5 {
                     state.insert(x, State::Positive);
                     c += s - indegree[x];
@@ -175,10 +222,10 @@ fn best(
                 if indegree[x] > s * 0.5 {
                     // Keep connected
                     c += 1. - w;
-                    if outdegree[x] + w > 1. && outdegree[x] <= split_threshold {
-                        c += -1. + outdegree[x];
-                    } else if outdegree[x] <= 1. {
+                    if outdegree[x] + w <= split_threshold {
                         c -= w;
+                    } else if outdegree[x] <= split_threshold {
+                        c += outdegree[x] - 1.;
                     }
                 } else {
                     // Unconnect x
@@ -209,9 +256,9 @@ fn best(
             }
         }
 
-        let cc = compute_nb_operations(&b_cluster, wadj, split_threshold, 0);
+        let cc = compute_nb_operations(&cols_cluster, wadj, split_threshold, 0);
 
-        println!("{s}, {b_cluster:?} cost: {c}, ope {cc:?}");
+        println!("{s}, {cols_cluster:?} cost: {c}, ope {cc:?}");
         if c != (cc.1 + cc.2 + cc.3) {
             panic!("{c} {cc:?}");
         }
@@ -220,7 +267,7 @@ fn best(
         let cost = c * f64::powf(s, -cost_coef);
         if best_cost.is_nan() || cost < best_cost {
             best_cost = cost;
-            best_cluster = b_cluster.clone();
+            best_cluster = cols_cluster.clone();
         }
     }
 
@@ -241,10 +288,15 @@ fn compute_nb_operations (
     let mut nb_additions = 0.;
     let cluster_size = cols_cluster.len() as f64;
 
+    let mut in_cols = vec![false; wadj.get_m()];
+    for &col in cols_cluster {
+        in_cols[col] = true;
+    }
+
     for row in 0..wadj.get_n() {
         // the indegree is the weights of the edges with cols_cluster
         // the out_degree is the sum of the weight of the edges outside cols_cluster
-        let (indegree, out_degree) = wadj.get_row_in_out_degrees(row, &cols_cluster);
+        let (indegree, out_degree) = wadj.get_row_in_out_degrees(row, &in_cols);
 
         // row is accepted in the bicluster
         if indegree > cluster_size * 0.5 {
@@ -348,13 +400,7 @@ fn compute_unclustered_a(n: usize, a_clusters: &Vec<Vec<usize>>) -> Vec<usize> {
     a_unclustered
 }
 
-pub struct AlgoStats {
-    pub adjusted_error: f64,
-    pub nb_operations: f64,
-    pub nb_splits: f64,
-    pub nb_deletions: f64,
-    pub nb_additions: f64,
-}
+
 
 /// Pick a random sample of size k in (0..n-1) such that no indices are in assigned.
 /// If k > the number of unassigned vertices, then retain all the unassigned vertices
@@ -431,7 +477,7 @@ pub fn bicluster_one_sided(
         // Check if there is a B vertex of degree 0
         let mut has_isolated_b_vertices = false;
         for b in 0..m {
-            if assigned[b] == false && wadj.col_degree(b) == 0 {
+            if assigned[b] == false && wadj.col_nb_neighbors(b) == 0 {
                 assigned[b] = true;
                 nb_assigned += 1;
                 isolated_b_vertices.push(b);
@@ -452,7 +498,7 @@ pub fn bicluster_one_sided(
             if assigned[v] {
                 continue;
             }
-            let degree = wadj.col_degree(v);
+            let degree = wadj.col_nb_neighbors(v);
             if degree > maxdeg {
                 maxdeg = degree;
                 maxv = Some(v);
@@ -503,37 +549,34 @@ pub fn bicluster_one_sided(
         let mut best_col = 0;
 
         // Find the B_cluster with minimal cost
-        for b in sample {
+        for col in sample {
 
-            println!("center: {b}");
+            println!("center: {col}");
 
-            // Compute order of b
-            let mut d = 0.;
-            for (_, w) in wadj.iter(b) {
-                d += w;
-            }
+            // Compute local order of col
+            let d = wadj.col_wdeg(col);
             let order = if d == 0. {
-                vec![(b, 1.)]
+                vec![(col, 1.)]
             } else {
-                compute_order(&wadj, m, b, &tm, markov_power, verbose)
+                compute_order_local(&wadj, col,  markov_power, 0.01)
             };
 
             println!("order computed");
             
             if verbose >= 2 {
-                println!("Step 1: compute order of {b}");
+                println!("Step 1: compute order of {col}");
                 println!("{order:?}");
             }
 
 
 
             // Compute best cost
-            // let (cost, b_cluster) = best(n, m, order, &wadj, cost_coef, split_threshold);
+            // let (cost, b_cluster) = best( order, &wadj, cost_coef, split_threshold);
             let (cost, b_cluster) = best_sure(&order, &wadj, cost_coef, split_threshold, verbose);
 
             println!(
-                "Col: {b} deg: {} B-neighbors: {} best_cost: {cost:.2}",
-                wadj.col_degree(b),
+                "Col: {col} deg: {} B-neighbors: {} best_cost: {cost:.2}",
+                wadj.col_nb_neighbors(col),
                 order.len()
             );
 
@@ -541,7 +584,7 @@ pub fn bicluster_one_sided(
             if best_cost.is_nan() || cost < best_cost {
                 best_cost = cost;
                 best_cluster = b_cluster.clone();
-                best_col = b;
+                best_col = col;
             }
             if verbose >= 2 {
                 println!("Step 2: best_cost: {best_cost}, cluster: {best_cluster:?}");
@@ -651,7 +694,7 @@ fn apply_operations(
 
     for a in 0..n {
         let mut indegree = 0.;
-        for (&col, w) in wadj.iter(a + m) {
+        for (&col, w) in wadj.row_adj[a].iter() {
             if b_cluster.contains(&col) {
                 indegree += w;
                 // println!("{col}");
@@ -674,8 +717,8 @@ fn apply_operations(
 
             // Compute the number of neighbors of row a outside b_cluster
             let mut out_degree = 0.;
-            for (i, w) in wadj.iter(a + m) {
-                if b_cluster.contains(&i) == false {
+            for (col, w) in wadj.row_adj[a].iter() {
+                if b_cluster.contains(&col) == false {
                     out_degree += w;
                 }
             }
@@ -702,7 +745,7 @@ fn apply_operations(
             else {
                 nb_splits += 1.;
                 if verbose >= 1 {
-                    println!("split {a} {}", wadj.get_label(a))
+                    println!("split {a} {}", wadj.row_label(a))
                 }
                 for &b in b_cluster.iter() {
                     if wadj.has_edge(a, b) {

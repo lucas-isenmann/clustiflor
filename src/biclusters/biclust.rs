@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::{collections::HashSet, fs::File};
 
-use super::algo::AlgoStats;
+use super::common::AlgoStats;
 
 #[derive(Clone)]
 /// Rows are indiced from 0 to (n-1).

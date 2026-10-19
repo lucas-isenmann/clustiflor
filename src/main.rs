@@ -10,7 +10,7 @@ use std::{fs::File, process::Command};
 
 use biclusters::algo_two_sided::{analyze_ground_biclusters, bicluster_two_sided};
 use biclusters::{
-    algo::bicluster_one_sided, r_results::load_r_biclusters, weighted_biadj::WeightedBiAdjacency,
+    algo_one_sided::bicluster_one_sided, r_results::load_r_biclusters, weighted_biadj::WeightedBiAdjacency,
 };
 
 use clap::Parser;
