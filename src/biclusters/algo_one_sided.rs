@@ -6,14 +6,14 @@ use rand::seq::SliceRandom;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
-use super::common::transition_matrix_b;
+use super::common::transition_matrix_cols;
 use super::weighted_biadj::WeightedBiAdjacency;
 use crate::biclusters::biclust::Biclust;
 use crate::biclusters::common::AlgoStats;
 use crate::common::{compute_statio_distrib_by_iter, print_matrix, progress_bar};
 
 
-fn compute_order_local(
+pub fn compute_order_local(
     wadj: &WeightedBiAdjacency, 
     center_col: usize,
     iters: usize, 
@@ -46,7 +46,9 @@ fn compute_order_local(
     }
 
     // Itération de puissance creuse, la masse sortante retourne en b
-    let (mut pi, mut next, mut h) = (vec![0.; d], vec![0.; d], vec![0.; back.len()]);
+    let mut pi = vec![0.; d];  // The distribution vector
+    let mut next = vec![0.; d];
+    let mut h = vec![0.; back.len()];
     pi[0] = 1.;
     for _ in 0..iters {
         h.fill(0.); next.fill(0.);
@@ -86,7 +88,7 @@ fn centered_transition_matrix(tm: &Array2<f64>, neighbors: &Vec<usize>) -> Array
     ctm
 }
 
-fn compute_order(
+pub fn compute_order(
     wadj: &WeightedBiAdjacency,
     m: usize,
     vertex: usize,
@@ -258,7 +260,7 @@ fn best(
 
         let cc = compute_nb_operations(&cols_cluster, wadj, split_threshold, 0);
 
-        println!("{s}, {cols_cluster:?} cost: {c}, ope {cc:?}");
+        // println!("{s}, {cols_cluster:?} cost: {c}, ope {cc:?}");
         if c != (cc.1 + cc.2 + cc.3) {
             panic!("{c} {cc:?}");
         }
@@ -346,7 +348,7 @@ fn compute_old_cost(
 ) -> f64 {
 
     let nb_cols_cluster = cols_cluster.len() as f64;
-    let (nb_rows, add, del, spl) = compute_nb_operations(cols_cluster, wadj, split_threshold, verbose);
+    let (_nb_rows, add, del, spl) = compute_nb_operations(cols_cluster, wadj, split_threshold, verbose);
 
      (add + del + spl) * f64::powf(nb_cols_cluster, -size_sensitivity)
 }
@@ -455,23 +457,23 @@ pub fn bicluster_one_sided(
     let mut isolated_b_vertices = vec![];
 
     let mut assigned = vec![false; m];
-    let mut nb_assigned = 0;
+    let mut nb_assigned_cols = 0;
 
     let start_instant: Instant = Instant::now();
 
 
-    // While there exists some B vertices to cluster
+    // While there exists some cols vertices to cluster
     loop {
         if verbose >= 1 {
             println!("---");
-            println!("{nb_assigned} B / {m} vertices are assigned");
+            println!("{nb_assigned_cols} / {m} cols are assigned");
         }
-        if nb_assigned == m {
+        if nb_assigned_cols == m {
             break;
         }
 
         if verbose == 0 {
-            progress_bar(nb_assigned, m, start_instant);
+            progress_bar(nb_assigned_cols, m, start_instant);
         }
 
         // Check if there is a B vertex of degree 0
@@ -479,7 +481,7 @@ pub fn bicluster_one_sided(
         for b in 0..m {
             if assigned[b] == false && wadj.col_nb_neighbors(b) == 0 {
                 assigned[b] = true;
-                nb_assigned += 1;
+                nb_assigned_cols += 1;
                 isolated_b_vertices.push(b);
                 has_isolated_b_vertices = true;
             }
@@ -489,36 +491,16 @@ pub fn bicluster_one_sided(
         }
 
         // Search min/max degree
-        let mut mindeg = 100000;
-        let mut minv = None;
-        let mut maxdeg = 0;
-        let mut maxv = None;
-
-        for v in 0..m {
-            if assigned[v] {
-                continue;
-            }
-            let degree = wadj.col_nb_neighbors(v);
-            if degree > maxdeg {
-                maxdeg = degree;
-                maxv = Some(v);
-            }
-            if degree < mindeg {
-                mindeg = degree;
-                minv = Some(v);
-            }
-        }
-        if verbose >= 1 {
-            println!("vertex {minv:?} of degree {mindeg}, vertex {maxv:?} of degree {maxdeg}");
-        }
-
-        // Compute the transition matrix between B vertices
-        let tm = transition_matrix_b(wadj, n, m);
+        let Some((mindeg, minv, maxdeg, maxv)) = wadj.min_max_degree_cols(&assigned) else {break} ;
 
         if verbose >= 2 {
-            println!("Transition matrix:");
-            print_matrix(&tm);
+            println!("Min deg: {mindeg} col: {minv}");
+            println!("Max deg: {maxdeg} col: {maxv}");
         }
+
+        // let tm = transition_matrix_cols(wadj);
+
+        
 
         let mut best_cluster = Vec::new();
         let mut best_cost = f64::NAN;
@@ -533,17 +515,12 @@ pub fn bicluster_one_sided(
         // Pick a sample
         let mut sample = pick_unassigned_sample(&mut rng, sample_size, &unassigned);
 
-
         // Add minv and maxv if they are not in the sample
-        // if let Some(minv) = minv {
         //     if sample.contains(&minv) == false {
         //         sample.push(minv);
         //     }
-        // }
-        if let Some(maxv) = maxv {
-            if sample.contains(&maxv) == false {
-                sample.push(maxv);
-            }
+        if sample.contains(&maxv) == false {
+            sample.push(maxv);
         }
 
         let mut best_col = 0;
@@ -551,44 +528,40 @@ pub fn bicluster_one_sided(
         // Find the B_cluster with minimal cost
         for col in sample {
 
-            println!("center: {col}");
+            println!(">> Col center: {col} deg: {} wdeg: {}", wadj.col_nb_neighbors(col), wadj.col_wdeg(col));
 
             // Compute local order of col
-            let d = wadj.col_wdeg(col);
-            let order = if d == 0. {
+            let order = if wadj.col_wdeg(col) == 0. {
                 vec![(col, 1.)]
             } else {
                 compute_order_local(&wadj, col,  markov_power, 0.01)
             };
 
-            println!("order computed");
             
             if verbose >= 2 {
-                println!("Step 1: compute order of {col}");
-                println!("{order:?}");
+                println!("Order: {order:?}");
             }
 
 
 
             // Compute best cost
-            // let (cost, b_cluster) = best( order, &wadj, cost_coef, split_threshold);
-            let (cost, b_cluster) = best_sure(&order, &wadj, cost_coef, split_threshold, verbose);
+            let (cost, b_cluster) = best( order, &wadj, cost_coef, split_threshold);
+            // let (cost, b_cluster) = best_sure(&order, &wadj, cost_coef, split_threshold, verbose);
 
-            println!(
-                "Col: {col} deg: {} B-neighbors: {} best_cost: {cost:.2}",
-                wadj.col_nb_neighbors(col),
-                order.len()
-            );
+            println!("this best cost: {cost:.2} (best : {best_cost:.2})");
+            println!("this best prefix: {b_cluster:?}");
 
 
             if best_cost.is_nan() || cost < best_cost {
+                
                 best_cost = cost;
                 best_cluster = b_cluster.clone();
                 best_col = col;
+                if verbose >= 2 {
+                    println!("New best: cost: {best_cost}, cluster: {best_cluster:?}");
+                }
             }
-            if verbose >= 2 {
-                println!("Step 2: best_cost: {best_cost}, cluster: {best_cluster:?}");
-            }
+            
         }
 
         if best_cluster.len() == 0 {
@@ -601,11 +574,11 @@ pub fn bicluster_one_sided(
                 panic!("col {b} already assigned");
             }
             assigned[b] = true;
-            nb_assigned += 1;
+            nb_assigned_cols += 1;
         }
         b_clusters.push(best_cluster.clone());
 
-        if verbose >= 0 {
+        if verbose >= 1 {
             best_cluster.sort();
             println!("--- New Bicluster n° {}", b_clusters.len());
             println!("Discoverd from {best_col}");
@@ -619,7 +592,7 @@ pub fn bicluster_one_sided(
         }
 
         let (a_cluster, del, add, spl) =
-            apply_operations(n, m, best_cluster, wadj, split_threshold, verbose);
+            apply_operations(best_cluster, wadj, split_threshold, verbose);
         nb_deletions += del;
         nb_additions += add;
         nb_splits += spl;
@@ -679,23 +652,23 @@ pub fn bicluster_one_sided(
 
 
 fn apply_operations(
-    n: usize,
-    m: usize,
-    b_cluster: Vec<usize>,
+    cols_cluster: Vec<usize>,
     wadj: &mut WeightedBiAdjacency,
     split_threshold: f64,
     verbose: usize,
 ) -> (Vec<usize>, f64, f64, f64) {
+    let n = wadj.get_n();
+    let m = wadj.get_m();
     let mut a_cluster = vec![];
     let mut nb_deletions = 0.;
     let mut nb_splits = 0.;
     let mut nb_additions = 0.;
-    let blen = b_cluster.len() as f64;
+    let blen = cols_cluster.len() as f64;
 
-    for a in 0..n {
+    for row in 0..n {
         let mut indegree = 0.;
-        for (&col, w) in wadj.row_adj[a].iter() {
-            if b_cluster.contains(&col) {
+        for (&col, w) in wadj.row_adj[row].iter() {
+            if cols_cluster.contains(&col) {
                 indegree += w;
                 // println!("{col}");
                 // println!("{}", wadj.has_edgee(a, col));
@@ -704,21 +677,21 @@ fn apply_operations(
 
         if indegree > blen * 0.5 {
             // println!("{a} indegree: {indegree}");
-            a_cluster.push(a);
+            a_cluster.push(row);
             nb_additions += blen - indegree;
 
             if verbose >= 2 {
-                for &col in b_cluster.iter() {
-                    if wadj.has_edge(a, col) == false {
-                        println!("add {a} {col}");
+                for &col in cols_cluster.iter() {
+                    if wadj.has_edge(row, col) == false {
+                        println!("add {row} {col}");
                     }
                 }
             }
 
             // Compute the number of neighbors of row a outside b_cluster
             let mut out_degree = 0.;
-            for (col, w) in wadj.row_adj[a].iter() {
-                if b_cluster.contains(&col) == false {
+            for (col, w) in wadj.row_adj[row].iter() {
+                if cols_cluster.contains(&col) == false {
                     out_degree += w;
                 }
             }
@@ -727,17 +700,17 @@ fn apply_operations(
             if out_degree <= split_threshold {
                 nb_deletions += out_degree;
                 for b in 0..m {
-                    if b_cluster.contains(&b) == false && wadj.has_edge(a, b) {
+                    if cols_cluster.contains(&b) == false && wadj.has_edge(row, b) {
                         if verbose >= 2 {
-                            println!("delete {a} {b}")
+                            println!("delete {row} {b}")
                         }
-                        wadj.delete_edge(a, b);
+                        wadj.delete_edge(row, b);
                     }
                 }
-                for &b in b_cluster.iter() {
+                for &b in cols_cluster.iter() {
                     // I think it is useless
-                    if wadj.has_edge(a, b) {
-                        wadj.delete_edge(a, b);
+                    if wadj.has_edge(row, b) {
+                        wadj.delete_edge(row, b);
                     }
                 }
             }
@@ -745,23 +718,23 @@ fn apply_operations(
             else {
                 nb_splits += 1.;
                 if verbose >= 1 {
-                    println!("split {a} {}", wadj.row_label(a))
+                    println!("split row {row} {}", wadj.row_label(row))
                 }
-                for &b in b_cluster.iter() {
-                    if wadj.has_edge(a, b) {
+                for &b in cols_cluster.iter() {
+                    if wadj.has_edge(row, b) {
                         // println!("spl del {a} {b}");
-                        wadj.delete_edge(a, b);
+                        wadj.delete_edge(row, b);
                     }
                 }
             }
         } else {
             nb_deletions += indegree;
-            for &b in b_cluster.iter() {
-                if wadj.has_edge(a, b) {
+            for &b in cols_cluster.iter() {
+                if wadj.has_edge(row, b) {
                     if verbose >= 2 {
-                        println!("delete {a} {b}")
+                        println!("delete {row} {b}")
                     }
-                    wadj.delete_edge(a, b);
+                    wadj.delete_edge(row, b);
                 }
             }
         }

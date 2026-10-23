@@ -8,7 +8,7 @@ use crate::biclusters::biclust::Biclust;
 use crate::common::{print_matrix, progress_bar};
 
 use super::common::AlgoStats;
-use super::common::{rows_transition_matrix, transition_matrix_b};
+use super::common::{rows_transition_matrix, transition_matrix_cols};
 use super::weighted_biadj::WeightedBiAdjacency;
 
 // /// centered on cols[0]
@@ -642,7 +642,7 @@ pub fn bicluster_two_sided(
         }
 
         // Compute the transition matrix between B vertices
-        let cols_tm = transition_matrix_b(wadj, n, m);
+        let cols_tm = transition_matrix_cols(wadj);
         let rows_tm = rows_transition_matrix(wadj, n, m);
 
         if verbose >= 3 {

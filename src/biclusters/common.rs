@@ -35,29 +35,30 @@ pub fn rows_transition_matrix(wadj: &WeightedBiAdjacency, n: usize, m: usize) ->
     tm
 }
 
-/// Return the transition matrix between B vertices
+/// Return the transition matrix between columns
 ///
-pub fn transition_matrix_b(wadj: &WeightedBiAdjacency, n: usize, m: usize) -> Array2<f64> {
-    let mut tm = Array2::zeros((m, m));
+    pub fn transition_matrix_cols(wadj: &WeightedBiAdjacency) -> Array2<f64> {
+        let n = wadj.get_n();
+        let m = wadj.get_m();
+        let mut tm = Array2::zeros((m, m));
+        let d = compute_degrees(wadj, n, m);
 
-    let d = compute_degrees(wadj, n, m);
-
-    // Compute tm[i][j] = probability i -> j
-    // tm[i][j] = (sum wxi wxj) / (d[i] d[j])
-    for i in 0..m {
-        for j in 0..m {
-            for (x, wxi) in wadj.col_adj[i].iter() {
-                for (y, w) in wadj.col_adj[j].iter() {
-                    if x == y {
-                        tm[[i, j]] += (wxi * w) / (d[i] * d[x + m]);
-                        break;
+        // Compute tm[i][j] = probability i -> j
+        // tm[i][j] = (sum wxi wxj) / (d[i] d[j])
+        for i in 0..m {
+            for j in 0..m {
+                for (x, wxi) in wadj.col_adj[i].iter() {
+                    for (y, w) in wadj.col_adj[j].iter() {
+                        if x == y {
+                            tm[[i, j]] += (wxi * w) / (d[i] * d[x + m]);
+                            break;
+                        }
                     }
                 }
             }
         }
+        tm
     }
-    tm
-}
 
 fn compute_degrees(wadj: &WeightedBiAdjacency, n: usize, m: usize) -> Vec<f64> {
     let mut degrees = vec![0.; n + m];

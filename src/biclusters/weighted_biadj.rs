@@ -191,7 +191,33 @@ impl WeightedBiAdjacency {
         }
     }
 
+    /// Find the min and max degree cols
+    /// among the unassigned cols
+    pub fn min_max_degree_cols(&self, assigned: &Vec<bool>) -> Option<(usize, usize, usize, usize)>{
+        if self.m == 0 {
+            return None;
+        }
+        let mut mindeg = self.col_nb_neighbors(0);
+        let mut minv = 0;
+        let mut maxdeg = self.col_nb_neighbors(0);
+        let mut maxv = 0;
 
+        for v in 1..self.m {
+            if assigned[v] {
+                continue;
+            }
+            let degree = self.col_nb_neighbors(v);
+            if degree > maxdeg {
+                maxdeg = degree;
+                maxv = v;
+            }
+            if degree < mindeg {
+                mindeg = degree;
+                minv = v;
+            }
+        }
+        Some((mindeg, minv, maxdeg, maxv))
+    }
 
     /// in_cluster[col] == true if col is in the coluster
     pub fn get_row_in_out_degrees(&self, row: usize, in_cluster: &[bool]) -> (f64, f64) {
@@ -572,7 +598,7 @@ impl WeightedBiAdjacency {
                 }
                 
                 // Parse bicluster definition
-                if line.starts_with("BC") {
+                if line.starts_with("Bicluster") {
                     let members_str = &line[3..];
                     if members_str.len() == 0{
                         continue;

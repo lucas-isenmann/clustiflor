@@ -3,7 +3,7 @@ pub mod cli;
 pub mod clustering;
 pub mod common;
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Cursor, Write};
 use std::path::Path;
 use std::time::Instant;
 use std::{fs::File, process::Command};
@@ -14,10 +14,12 @@ use biclusters::{
 };
 
 use clap::Parser;
+use crate::biclusters::algo_one_sided::{compute_order, compute_order_local};
 use rand::RngExt;
 use walkdir::WalkDir;
 
 use crate::cli::Cli;
+use crate::biclusters::common::transition_matrix_cols;
 use crate::clustering::cluster_algo::run_cluster_solver;
 use crate::common::print_error;
 
@@ -188,7 +190,7 @@ fn run_comparison() {
     }
 }
 
-fn run_bicluster_one_sided(cli: Cli) {
+fn run_bicluster_one_sided(mut cli: Cli) {
     if cli.matrix_format {
         let wadj = WeightedBiAdjacency::load_wadj_from_matrix(
             &cli.data_path,
@@ -200,32 +202,36 @@ fn run_bicluster_one_sided(cli: Cli) {
         wadj.print_wadj_stats();
         println!("Runing Bicluster One Sided");
 
-        let mut wadj2 = wadj.clone();
-        let (biclusters, algo_stats) = bicluster_one_sided(
-            &mut wadj2,
-            cli.size_sensitivity,
-            cli.split_threshold,
-            cli.matrix_power,
-            0,
-            cli.verbose,
-        );
-        let results_path = cli.data_path.to_string() + ".biclusters";
-        let mut labels_a = vec![];
-        let mut labels_b = vec![];
-        for line in 0..wadj.get_n() {
-            labels_a.push(line.to_string())
+        for th in [ 25] {
+            for sv in  [ 0.6, 0.5] {
+                cli.split_threshold = th as f64;
+                cli.size_sensitivity = sv as f64;
+
+                let mut wadj2 = wadj.clone();
+                let (biclusters, algo_stats) = bicluster_one_sided(
+                    &mut wadj2,
+                    cli.size_sensitivity,
+                    cli.split_threshold,
+                    cli.matrix_power,
+                    cli.samples_size,
+                    cli.verbose,
+                );
+                let vfmt = (cli.size_sensitivity*100.) as usize;
+                let tfmt = (cli.split_threshold) as usize;
+
+                let results_path = cli.data_path.to_string() + &format!(".t_{tfmt}_v_{vfmt}") +  ".biclusters";
+                biclusters.print_stats(
+                    cli.size_sensitivity,
+                    cli.split_threshold,
+                    cli.matrix_power,
+                    &wadj,
+                    Some(&results_path),
+                    algo_stats,
+                );
+            }
         }
-        for j in 0..wadj.get_m() {
-            labels_b.push(format!("c{j}"));
-        }
-        biclusters.print_stats(
-            cli.size_sensitivity,
-            cli.split_threshold,
-            cli.matrix_power,
-            &wadj,
-            Some(&results_path),
-            algo_stats,
-        );
+
+        
     } else {
         let wadj = WeightedBiAdjacency::load_wadj_from_csv(&cli.data_path, " ", cli.split_rows);
         wadj.print_wadj_stats();
@@ -369,6 +375,34 @@ fn process_single_file(file_path: &str, cli: Cli) {
 }
 
 fn main() {
+
+//     let input = "\
+// + 0 1 2 3
+// U 1 1 0 0
+// V 1 1 0 0
+// W 1 1 1 1
+// X 0 0 1 1
+// Y 0 0 1 1
+// ";
+
+
+//     let reader = Cursor::new(input);
+
+//     let mut wadj = WeightedBiAdjacency::parse_wadj_from_reader(
+//         reader,
+//         false,
+//         " ",
+//         true,
+//     ).unwrap();
+
+//     let (lol1, lol2)  = bicluster_one_sided(&mut wadj, 1.0, 1.0, 8, 4, 2);
+//     lol1.print();
+//     lol1.print_stats(1.0, 1.0, 8, &wadj, None, lol2);
+
+//     return;
+
+
+
     let mut cli = Cli::parse();
 
     cli.sep = cli

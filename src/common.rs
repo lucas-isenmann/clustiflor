@@ -147,7 +147,12 @@ pub fn compute_statio_distrib_by_iter(tm: &Array2<f64>, exp: usize, verbose: usi
     let mut v = Array2::zeros((d, 1));
     let p = 1. / (d as f64);
     for i in 0..d {
-        v[[i, 0]] = p;
+        if i == 0 {
+            v[[i,0]] = 1.0;
+        } else {
+            v[[i,0]] = 0.0;
+        }
+        // v[[i, 0]] = p;
     }
 
     for _ in 0..exp {
